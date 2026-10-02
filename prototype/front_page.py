@@ -63,7 +63,9 @@ class Node:
         self.next = fm.get('next', '')
         self.updated = fm.get('updated', '')
         self.cadence = fm.get('cadence', '')
-        self.open_rows = re.findall(r'^\d+\.\s+(.+)$', body, re.M)
+        # an Open row is a numbered line; indented lines under it are its detail
+        self.open_rows = [(m.group(1), ' '.join(l.strip(' -*') for l in m.group(2).splitlines() if l.strip()))
+                          for m in re.finditer(r'^\d+\.\s+(.+)\n((?:[ \t]+\S.*\n?)*)', body + '\n', re.M)]
         w = re.search(r'\*\*Waiting on:\*\*\s*(.+?)(?:\n|$)', body)
         self.waiting_on = w.group(1).strip() if w and not w.group(1).lower().startswith('nothing') else ''
         b = re.search(r'\*\*Blocked on:\*\*\s*(.+?)(?:\*\*|\n|$)', body)
@@ -104,7 +106,7 @@ class Node:
 
     @property
     def tasks(self):
-        out = [{'status': 'backlog', 'title': r, 'source': 'vault'} for r in self.open_rows]
+        out = [dict(split_title(r, d), status='backlog', source='vault') for r, d in self.open_rows]
         # Blocked on / Waiting on describe the node, not tasks: never strays
         if self.waiting_on: out.insert(0, {'status': 'waiting', 'title': self.waiting_on, 'source': 'vault', 'exempt': True})
         if self.blocked_on: out.insert(0, {'status': 'blocked', 'title': self.blocked_on, 'source': 'vault', 'exempt': True})
@@ -126,6 +128,14 @@ class Node:
     @property
     def sources(self):
         return [s for s, on in (('vault', True), ('notion', self.notion_linked), ('repo', bool(self.repo))) if on]
+
+
+def split_title(row, detail=''):
+    """Short title plus detail. Indented detail wins; otherwise the first sentence is the title (stopgap)."""
+    if detail: return {'title': row, 'detail': detail}
+    m = re.match(r'(.+?[.:;])\s+(\S.*)', row)
+    if m and len(m.group(1)) >= 12: return {'title': m.group(1).rstrip('.:;'), 'detail': m.group(2)}
+    return {'title': row, 'detail': ''}
 
 
 def derived(n):
@@ -399,7 +409,7 @@ def pair_up(rows):
     for i, a in enumerate(rows):
         for j, b in enumerate(rows):
             if j <= i or a['source'] == b['source']: continue
-            na, nb = norm(a['title']), norm(b['title'])
+            na, nb = norm(a['title'] + ' ' + a.get('detail', '')), norm(b['title'] + ' ' + b.get('detail', ''))
             r = SequenceMatcher(None, na, nb).ratio()
             wa, wb = set(na.split()), set(nb.split())
             short = min((wa, wb), key=len)
@@ -427,7 +437,12 @@ def state_box(n):
         stray = (f'<span class="stray" title="Out of place: this node keeps its tasks in {n.task_home.title()}">→ {n.task_home.title()}</span>'
                  if n.is_stray(t) else '')
         tip = ' title="Same task in more than one place"' if cls else ''
-        return f'<li class="{cls}"{tip}>{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>'
+        det = t.get('detail', '')
+        if det:
+            title = f'<span class="tt has-det" onclick="this.parentNode.classList.toggle(\'open\')" title="Show detail">{title}<span class="more">…</span></span>'
+            det = f'<div class="det">{esc(det)}</div>'
+        return (f'<li class="{cls}"{tip}>{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>'
+                f'{det}</li>')
     def ul(rows):
         return f'<ul class="tl">{"".join(task_li(t, c) for t, c in pair_up(rows))}</ul>'
     ts = n.tasks
@@ -613,6 +628,9 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .tl li:last-child{border-bottom:0}
 .tl li,.tl li:last-child{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0}
 .tl li::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
+.tl li{flex-wrap:wrap}.tt.has-det{cursor:pointer}.more{color:var(--muted);margin-left:4px}.li-open .more{display:none}
+.det{display:none;flex-basis:100%;font-size:13px;color:var(--muted);padding:6px 0 2px 15px;line-height:1.5}
+.tl li.open .det{display:block}.tl li.open .more{display:none}
 .tl li.pa{margin-bottom:2px;border-bottom-left-radius:2px;border-bottom-right-radius:2px}
 .tl li.pb{margin-top:0;border-top-left-radius:2px;border-top-right-radius:2px}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
