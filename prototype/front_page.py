@@ -549,10 +549,19 @@ MEMORY_INDEX = os.path.expanduser(os.path.join('~', '.claude', 'projects',
                                   VAULT.replace(':', '-').replace(os.sep, '-'), 'memory', 'MEMORY.md'))
 
 
-def obs_link(path, label='Open ↗'):
+def obs_href(path):
     rel = os.path.relpath(path, VAULT)
-    if rel.startswith('..'): return ''  # outside the vault, Obsidian can't open it
-    return f'<a class="olink" href="obsidian://open?vault=Vault&file={qp(rel.replace(os.sep, "/"))}">{label}</a>'
+    if rel.startswith('..') or not path.endswith('.md'): return ''  # Obsidian opens vault notes only
+    return f'obsidian://open?vault=Vault&file={qp(rel.replace(os.sep, "/"))}'
+
+
+REVEAL_ROOTS = [os.path.normcase(os.path.realpath(p)) for p in (VAULT, os.path.expanduser('~/dev'), os.path.expanduser('~/.claude'))]
+
+
+def reveal_link(folder, label='Open folder ↗'):
+    """The server opens the folder in Windows Explorer, on the PC the server runs on."""
+    return (f'<a class="olink" href="#" hx-get="/reveal?p={qp(folder)}" hx-swap="none" '
+            f'onclick="event.stopPropagation();event.preventDefault()">{label}</a>')
 
 
 def context_box(n):
@@ -562,7 +571,9 @@ def context_box(n):
     def row(label, path, note=''):
         seen.add(os.path.normcase(path))
         age = ago(mtime_date(path)) if os.path.exists(path) else ''
-        return (f'<li><span class="fn">{esc(label)}</span><span class="fp">{esc(note or purpose(path))}</span>'
+        href = obs_href(path) if os.path.isfile(path) else ''
+        name = f'<a class="fo" href="{href}">{esc(label)}</a>' if href else esc(label)
+        return (f'<li><span class="fn">{name}</span><span class="fp">{esc(note or purpose(path))}</span>'
                 f'<span class="ago">{age}</span></li>')
     def group(title, rows, link=''):
         return f'<div class="gh"><h4>{title}</h4>{link}</div><ul class="fl">{"".join(rows)}</ul>' if rows else ''
@@ -617,15 +628,13 @@ def context_box(n):
     if os.path.isdir(ret) and os.listdir(ret):
         hist.append(f'<li class="fold"><span class="fn">retired/</span><span class="fp">{len(os.listdir(ret))} old front pages</span><span class="ago"></span></li>')
 
-    work_first = next((p for _, _, p in sorted(files, reverse=True)), os.path.join(scaffold, 'NODE.md'))
     rest = disk + hist
-    link = obs_link(work_first).replace('<a ', '<a onclick="event.stopPropagation()" ', 1)
     folder = (f'<details class="ff"><summary><div class="gh"><h4>Folders &amp; files <span class="muted">{len(rest)}, not loaded</span></h4>'
-              f'{link}</div></summary><ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
+              f'{reveal_link(n.folder)}</div></summary><ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
     return ('<section class="box"><h3 class="ch">Context<span class="lu">Last updated</span></h3>'
             + group('On vault chat initialisation', start)
-            + group('Once Claude touches this folder', lazy)
-            + group(f'On /session-open {esc(n.code)}', opened, obs_link(os.path.join(scaffold, 'NODE.md')))
+            + group('Once Claude touches this folder', lazy, reveal_link(chain[0]) if chain else '')
+            + group(f'On /session-open {esc(n.code)}', opened, reveal_link(n.folder))
             + folder + '</section>')
 
 
@@ -787,6 +796,7 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .ch{display:flex;justify-content:space-between;align-items:baseline}
 .lu{font-size:10px;font-weight:400;letter-spacing:.06em;color:var(--muted)}
 .fl li{border-bottom:0!important;padding:4px 0}
+a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-decoration:underline}
 .olink{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
 .fl{list-style:none;margin:0 0 4px;padding:0}.fl li{display:flex;gap:12px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .fl li:last-child{border-bottom:0}.fn{flex:none;width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -850,7 +860,12 @@ if(e.key==='Escape'){{const m=document.getElementById('modal');if(m)m.innerHTML=
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path); q = parse_qs(u.query)
-        if u.path == '/view':
+        if u.path == '/reveal':
+            p = os.path.realpath(q.get('p', [''])[0])
+            ok = os.path.isdir(p) and any(os.path.normcase(p).startswith(r) for r in REVEAL_ROOTS)
+            if ok: subprocess.Popen(['explorer', p])
+            self.send_response(204 if ok else 403); self.end_headers(); return
+        elif u.path == '/view':
             nodes, _ = load()
             n = next((n for n in nodes if n.rel == q.get('p', [''])[0]), None)
             body = view(n) if n else '<p>not found</p>'
