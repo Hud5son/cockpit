@@ -524,7 +524,15 @@ def sys_pills(n):
     if n.repo:
         ri = n.repo_info or {}
         tips['repo'] = f'{n.repo} · ' + (f'last commit {ri["last"]}' if ri.get('last') else 'no commits yet' if ri.get('exists') else 'not created')
-    return ''.join(f'<span class="sp sp-{s}" title="{esc(tips[s])}">{s.title()}</span>' for s in n.sources)
+    home = n.task_home
+    why = ('set in STATE (tasks:)' if n.fm.get('tasks') in ('notion', 'vault', 'repo') else
+           'guessed, the node is linked to Notion' if home == 'notion' else
+           'guessed, the node names a repo' if home == 'repo' else 'guessed, the default')
+    tips[home] = f'Task home: {why}. ' + tips.get(home, '')
+    # the task home comes first and solid; the other sources are outlined
+    order = [home] + [s for s in n.sources if s != home]
+    return ''.join(f'<span class="sp sp-{s}{" home" if s == home else ""}" title="{esc(tips.get(s, ""))}">{s.title()}</span>'
+                   for s in order if s in n.sources)
 
 
 def purpose(path):
@@ -824,8 +832,10 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .bl summary{list-style:none;cursor:pointer;display:block}.bl summary::-webkit-details-marker{display:none}
 .st{font-size:10px;letter-spacing:.06em;border-radius:8px;padding:1px 7px;margin-left:6px;border:1px solid var(--line);vertical-align:1px}
 .st-blocked{color:var(--blocked);border-color:var(--blocked)}.st-due{color:var(--due);border-color:var(--due)}.st-active{color:var(--active);border-color:var(--active)}
-.sp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 9px;border-radius:10px;color:#fff}
-.sp-vault{background:var(--vault)}.sp-notion{background:var(--notion);color:var(--bg)}.sp-repo{background:var(--repo)}
+.sp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:1px 8px;border-radius:10px;border:1px solid;background:transparent}
+.sp-vault{color:var(--vault)}.sp-notion{color:var(--notion)}.sp-repo{color:var(--repo)}
+.sp.home{color:#fff}.sp-vault.home{background:var(--vault);border-color:var(--vault)}
+.sp-notion.home{background:var(--notion);border-color:var(--notion);color:var(--bg)}.sp-repo.home{background:var(--repo);border-color:var(--repo)}
 .meta{display:flex;align-items:center;gap:12px;margin:0 0 14px;font-size:13px}
 .objs{margin:0;padding-left:20px}.objs li{padding:6px 0;font-size:15px;line-height:1.5}.olead{font-size:15px;margin:0 0 6px}
 .old{font-size:10px;letter-spacing:.06em;color:var(--due);border:1px solid var(--due);border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:1px}
