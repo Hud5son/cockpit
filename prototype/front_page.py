@@ -436,15 +436,20 @@ def state_box(n):
         if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
         stray = (f'<span class="stray" title="Out of place: this node keeps its tasks in {n.task_home.title()}">→ {n.task_home.title()}</span>'
                  if n.is_stray(t) else '')
-        tip = ' title="Same task in more than one place"' if cls else ''
         det = t.get('detail', '')
         if det:
             title = f'<span class="tt has-det" onclick="this.parentNode.classList.toggle(\'open\')" title="Show detail">{title}<span class="more">…</span></span>'
             det = f'<div class="det">{esc(det)}</div>'
-        return (f'<li class="{cls}"{tip}>{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>'
-                f'{det}</li>')
+        inner = f'{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>{det}'
+        return f'<div class="pr">{inner}</div>' if cls == 'pr' else f'<li>{inner}</li>'
     def ul(rows):
-        return f'<ul class="tl">{"".join(task_li(t, c) for t, c in pair_up(rows))}</ul>'
+        out, items = '', pair_up(rows)
+        for i, (t, c) in enumerate(items):
+            if c == 'pa':  # one card, one line per source
+                out += f'<li class="pair" title="Same task in more than one place">{task_li(t, "pr")}{task_li(items[i + 1][0], "pr")}</li>'
+            elif c != 'pb':
+                out += task_li(t)
+        return f'<ul class="tl">{out}</ul>'
     ts = n.tasks
     by = lambda s: [t for t in ts if t['status'] == s]
     out = ''
@@ -631,8 +636,10 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .tl li{flex-wrap:wrap}.tt.has-det{cursor:pointer}.more{color:var(--muted);margin-left:4px}.li-open .more{display:none}
 .det{display:none;flex-basis:100%;font-size:13px;color:var(--muted);padding:6px 0 2px 15px;line-height:1.5}
 .tl li.open .det{display:block}.tl li.open .more{display:none}
-.tl li.pa{margin-bottom:2px;border-bottom-left-radius:2px;border-bottom-right-radius:2px}
-.tl li.pb{margin-top:0;border-top-left-radius:2px;border-top-right-radius:2px}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
+.tl li.pair{display:block;padding:4px 12px}.tl li.pair::before{display:none}
+.pr{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;padding:4px 0}
+.pr::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
+.pr.open .det{display:block}.pr.open .more{display:none}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
 .nextline .sm{margin-left:8px;vertical-align:2px}
 .stray{flex:none;margin-left:auto;font-size:11px;color:var(--due);white-space:nowrap}.stray+.sm{margin-left:6px}
