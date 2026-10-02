@@ -126,7 +126,7 @@ class Node:
             out += [dict(split_title(r, d), status='backlog', source=src) for r, d in rows]
         for t in (self.notion or {}).get('tasks', []):
             out.append({'status': NOTION_MAP.get(t.get('status', '').lower(), 'backlog'), 'title': t.get('task', ''),
-                        'source': 'notion', 'url': t.get('url', '')})
+                        'source': 'notion', 'url': t.get('url', ''), 'due': (t.get('due') or '')[:10]})
         return out
 
     @property
@@ -144,12 +144,19 @@ class Node:
         return [s for s, on in (('vault', True), ('notion', self.notion_linked), ('repo', bool(self.repo))) if on]
 
 
+DUE = re.compile(r'[,;–-]?\s*\bdue (\d{4}-\d{2}-\d{2})\b', re.I)
+
+
 def split_title(row, detail=''):
-    """Short title plus detail. Indented detail wins; otherwise the first sentence is the title (stopgap)."""
-    if detail: return {'title': row, 'detail': detail}
+    """Short title plus detail. Indented detail wins; otherwise the first sentence is the title (stopgap).
+    `due YYYY-MM-DD` anywhere in the row is lifted out as the task's date."""
+    m = DUE.search(row) or DUE.search(detail)
+    due = m.group(1) if m else ''
+    row, detail = DUE.sub('', row).strip(), DUE.sub('', detail).strip()
+    if detail: return {'title': row, 'detail': detail, 'due': due}
     m = re.match(r'(.+?[.:;])\s+(\S.*)', row)
-    if m and len(m.group(1)) >= 12: return {'title': m.group(1).rstrip('.:;'), 'detail': m.group(2)}
-    return {'title': row, 'detail': ''}
+    if m and len(m.group(1)) >= 12: return {'title': m.group(1).rstrip('.:;'), 'detail': m.group(2), 'due': due}
+    return {'title': row, 'detail': '', 'due': due}
 
 
 def derived(n):
@@ -454,7 +461,13 @@ def state_box(n):
         if det:
             title = f'<span class="tt has-det" onclick="this.parentNode.classList.toggle(\'open\')" title="Show detail">{title}<span class="more">…</span></span>'
             det = f'<div class="det">{esc(det)}</div>'
-        inner = f'{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>{det}'
+        due = ''
+        if t.get('due'):
+            late = ' late' if t['due'] < date.today().isoformat() and t['status'] != 'done' else ''
+            try: label = date.fromisoformat(t['due']).strftime('%d %b').lstrip('0')
+            except ValueError: label = t['due']
+            due = f'<span class="due{late}" title="{"Overdue, " if late else ""}due {t["due"]}">{label}</span>'
+        inner = f'{title}{stray}{due}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>{det}'
         return f'<div class="pr">{inner}</div>' if cls == 'pr' else f'<li>{inner}</li>'
     def ul(rows):
         out, items = '', pair_up(rows)
@@ -661,6 +674,8 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .pr.open .det{display:block}.pr.open .more{display:none}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
 .nextline .sm{margin-left:8px;vertical-align:2px}
+.due{flex:none;margin-left:auto;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:0 7px;white-space:nowrap}
+.due.late{color:var(--due);border-color:var(--due)}.stray+.due{margin-left:8px}.due+.sm{margin-left:6px}
 .stray{flex:none;margin-left:auto;font-size:11px;color:var(--due);white-space:nowrap}.stray+.sm{margin-left:6px}
 .strays{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--due);margin-left:10px}
 .bl summary{list-style:none;cursor:pointer;display:block}.bl summary::-webkit-details-marker{display:none}
