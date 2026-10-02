@@ -545,50 +545,89 @@ def mtime_date(path):
     except OSError: return ''
 
 
+MEMORY_INDEX = os.path.expanduser(os.path.join('~', '.claude', 'projects',
+                                  VAULT.replace(':', '-').replace(os.sep, '-'), 'memory', 'MEMORY.md'))
+
+
+def obs_link(path, label='Open ↗'):
+    rel = os.path.relpath(path, VAULT)
+    if rel.startswith('..'): return ''  # outside the vault, Obsidian can't open it
+    return f'<a class="olink" href="obsidian://open?vault=Vault&file={qp(rel.replace(os.sep, "/"))}">{label}</a>'
+
+
 def context_box(n):
+    """What Claude knows about this node, grouped by what makes it load."""
     scaffold = os.path.join(n.folder, '_node') if os.path.isdir(os.path.join(n.folder, '_node')) else n.folder
+    seen = set()
     def row(label, path, note=''):
+        seen.add(os.path.normcase(path))
         age = ago(mtime_date(path)) if os.path.exists(path) else ''
-        desc = note or purpose(path)
-        return (f'<li><span class="fn">{esc(label)}</span><span class="fp">{esc(desc)}</span>'
+        return (f'<li><span class="fn">{esc(label)}</span><span class="fp">{esc(note or purpose(path))}</span>'
                 f'<span class="ago">{age}</span></li>')
-    # always loaded: global, then every CLAUDE.md from the vault root down to this node
-    rules = [('Global CLAUDE.md', os.path.expanduser(r'~\.claude\CLAUDE.md'), 'Your global rules')]
+    def group(title, rows, link=''):
+        return f'<h4>{title}</h4>{link}<ul class="fl">{"".join(rows)}</ul>' if rows else ''
+
+    # 1. any conversation started at the vault root
+    start = [row('Global CLAUDE.md', os.path.expanduser(os.path.join('~', '.claude', 'CLAUDE.md')), 'Your global rules'),
+             row('Vault/CLAUDE.md', os.path.join(VAULT, 'CLAUDE.md'), 'The vault rules'),
+             row('Memory index', MEMORY_INDEX, 'What Claude remembers across conversations')]
+    # 2. deeper CLAUDE.md files load the first time Claude reads a file below them
     d, chain = n.folder, []
-    while len(d) >= len(VAULT):
+    while len(d) > len(VAULT):
         if os.path.exists(os.path.join(d, 'CLAUDE.md')): chain.append(d)
-        if d == VAULT: break
         d = os.path.dirname(d)
-    rules += [(('Vault' if c == VAULT else os.path.basename(c)) + '/CLAUDE.md', os.path.join(c, 'CLAUDE.md'), 'Rules for this folder and below')
-              for c in reversed(chain)]
-    # loaded on open: NODE, STATE and every context: path, which may be relative to the node or its _node/
-    on_open = [('NODE.md', os.path.join(scaffold, 'NODE.md'), 'What this is'), ('STATE.md', os.path.join(scaffold, 'STATE.md'), 'Where it is')]
-    loaded = {os.path.normcase(p) for _, p, _ in on_open}
+    lazy = [row(os.path.relpath(c, VAULT).replace(os.sep, '/') + '/CLAUDE.md', os.path.join(c, 'CLAUDE.md'), 'Rules for this folder and below')
+            for c in reversed(chain)]
+    # 3. /session-open: NODE, STATE and every context: path, relative to the node or its _node/
+    opened = [row('NODE.md', os.path.join(scaffold, 'NODE.md'), 'What this is'), row('STATE.md', os.path.join(scaffold, 'STATE.md'), 'Where it is')]
     ctx = n.fm.get('context', [])
     for c in ctx if isinstance(ctx, list) else []:
         cands = [os.path.normpath(os.path.join(base, c)) for base in (n.folder, scaffold)]
         hit = next((p for p in cands if os.path.exists(p)), None)
-        on_open.append((c, hit or cands[0], '' if hit else 'Missing: listed in context: but not found'))
-        if hit: loaded.add(os.path.normcase(hit))
-    # not loaded: the rest of the node's own files, newest first; child nodes are in the nav
+        if hit and os.path.normcase(hit) in seen:
+            opened.append(row(c, hit, 'Already loaded above, listing it adds noise')); continue
+        opened.append(row(c, hit or cands[0], '' if hit else 'Missing: listed in context: but not found'))
+    # 4. on disk: Claude only knows if asked or it goes looking
     kids = {c.folder for c in n.children}
     files, folders = [], []
     for e in os.scandir(n.folder):
-        if e.name.startswith(('_', '.')) or e.path in kids: continue
+        if e.name.startswith(('_', '.')) or e.path in kids or os.path.normcase(e.path) in seen: continue
         if e.is_dir():
-            cnt = sum(len(fs) for _, _, fs in os.walk(e.path))
-            folders.append((e.name, cnt, max((mtime_date(os.path.join(r, f)) for r, _, fs in os.walk(e.path) for f in fs), default='')))
-        elif os.path.normcase(e.path) not in loaded and e.name not in ('CLAUDE.md',) and not e.name.endswith('overview.html'):
+            walk = [os.path.join(r, f) for r, _, fs in os.walk(e.path) for f in fs]
+            folders.append((max((mtime_date(p) for p in walk), default=''), e.name, len(walk)))
+        elif not e.name.endswith('overview.html'):
             files.append((mtime_date(e.path), e.name, e.path))
-    files.sort(reverse=True)
-    not_loaded = ''.join(row(name, p) for _, name, p in files)
-    not_loaded += ''.join(f'<li class="fold"><span class="fn">{esc(name)}/</span><span class="fp">{cnt} files</span><span class="ago">{ago(last)}</span></li>'
-                          for name, cnt, last in sorted(folders, key=lambda f: f[2], reverse=True))
-    link = 'obsidian://open?vault=Vault&file=' + qp(os.path.relpath(os.path.join(scaffold, 'NODE.md'), VAULT).replace(os.sep, '/'))
-    return (f'<section class="box"><h3>Context <a class="olink" href="{link}">Open in Obsidian ↗</a></h3>'
-            f'<h4>Always loaded</h4><ul class="fl">{"".join(row(*r) for r in rules)}</ul>'
-            f'<h4>Loaded on open</h4><ul class="fl">{"".join(row(*r) for r in on_open)}</ul>'
-            + (f'<h4>Not loaded</h4><ul class="fl">{not_loaded}</ul>' if not_loaded else '') + '</section>')
+    disk = [row(name, p) for _, name, p in sorted(files, reverse=True)]
+    disk += [f'<li class="fold"><span class="fn">{esc(name)}/</span><span class="fp">{cnt} files</span><span class="ago">{ago(last)}</span></li>'
+             for last, name, cnt in sorted(folders, reverse=True)]
+    # its history, also on disk
+    hist, first_note = [], ''
+    log = os.path.join(scaffold, 'LOG.md')
+    if os.path.exists(log) and os.path.normcase(log) not in seen:
+        last = next((l for l in read(log).splitlines() if re.match(r'\d{4}-\d{2}-\d{2}', l)), '')
+        last = last[13:110] + ('…' if len(last) > 110 else '')
+        hist.append(row('LOG.md', log, ('Last: ' + last) if last else 'One line per session'))
+    sess = os.path.join(scaffold, 'sessions')
+    if os.path.isdir(sess):
+        notes = sorted((f for f in os.listdir(sess) if f.endswith('.md')), reverse=True)
+        first_note = os.path.join(sess, notes[0]) if notes else ''
+        hist += [row('sessions/' + f, os.path.join(sess, f)) for f in notes[:3] if os.path.normcase(os.path.join(sess, f)) not in seen]
+        if len(notes) > 3: hist.append(f'<li class="fold"><span class="fn">sessions/</span><span class="fp">{len(notes) - 3} older notes</span><span class="ago"></span></li>')
+    ret = os.path.join(scaffold, 'retired')
+    if os.path.isdir(ret) and os.listdir(ret):
+        hist.append(f'<li class="fold"><span class="fn">retired/</span><span class="fp">{len(os.listdir(ret))} old front pages</span><span class="ago"></span></li>')
+
+    work_first = next((p for _, _, p in sorted(files, reverse=True)), os.path.join(scaffold, 'NODE.md'))
+    n_start, n_open, n_disk = len(start) + len(lazy), len(opened), len(disk) + len(hist)
+    summary = (f'<p class="csum">A fresh conversation knows <b>{n_start}</b> of these. <code>/session-open {esc(n.code)}</code> adds '
+               f'<b>{n_open}</b>. <b>{n_disk}</b> more are on disk, unknown until asked.</p>')
+    return (f'<section class="box"><h3>Context</h3>{summary}'
+            + group('Any conversation, from the first message', start)
+            + group('Once Claude touches this folder', lazy)
+            + group(f'On /session-open {esc(n.code)}', opened, obs_link(os.path.join(scaffold, 'NODE.md')))
+            + group('On disk, not loaded: the work', disk, obs_link(work_first))
+            + group('On disk, not loaded: its history', hist, obs_link(first_note or log))
+            + '</section>')
 
 
 def node_page(n):
@@ -740,7 +779,8 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 #main .detail{max-width:720px}
 .box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 22px 16px;margin:24px 0 32px}
 .box h3{margin-top:16px}
-.olink{float:right;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
+.csum{font-size:14px;margin:4px 0 6px}.csum code{font-size:12px}
+.olink{float:right;margin-top:16px;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
 .fl{list-style:none;margin:0 0 4px;padding:0}.fl li{display:flex;gap:12px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .fl li:last-child{border-bottom:0}.fn{flex:none;width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fp{flex:1;color:var(--muted)}.fl .ago{flex:none}.fl li.fold .fn{color:var(--muted)}
