@@ -105,12 +105,23 @@ class Node:
     @property
     def tasks(self):
         out = [{'status': 'backlog', 'title': r, 'source': 'vault'} for r in self.open_rows]
-        if self.waiting_on: out.insert(0, {'status': 'waiting', 'title': self.waiting_on, 'source': 'vault'})
-        if self.blocked_on: out.insert(0, {'status': 'blocked', 'title': self.blocked_on, 'source': 'vault'})
+        # Blocked on / Waiting on describe the node, not tasks: never strays
+        if self.waiting_on: out.insert(0, {'status': 'waiting', 'title': self.waiting_on, 'source': 'vault', 'exempt': True})
+        if self.blocked_on: out.insert(0, {'status': 'blocked', 'title': self.blocked_on, 'source': 'vault', 'exempt': True})
         for t in (self.notion or {}).get('tasks', []):
             out.append({'status': NOTION_MAP.get(t.get('status', '').lower(), 'backlog'), 'title': t.get('task', ''),
                         'source': 'notion', 'url': t.get('url', '')})
         return out
+
+    @property
+    def task_home(self):
+        """Where this node's tasks should live. Written as `tasks:` only to override the guess."""
+        home = self.fm.get('tasks', '')
+        if home in ('notion', 'vault', 'repo'): return home
+        return 'notion' if self.notion_linked else 'repo' if self.repo else 'vault'
+
+    def is_stray(self, t):
+        return not t.get('exempt') and t['status'] != 'done' and t['source'] != self.task_home
 
     @property
     def sources(self):
@@ -376,13 +387,13 @@ def items(body):
     return lead, rows
 
 
-def task_li(t):
-    title = esc(t['title'][:200])
-    if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
-    return f'<li>{title}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>'
-
-
 def state_box(n):
+    def task_li(t):
+        title = esc(t['title'][:200])
+        if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
+        stray = (f'<span class="stray" title="Out of place: this node keeps its tasks in {n.task_home.title()}">→ {n.task_home.title()}</span>'
+                 if n.is_stray(t) else '')
+        return f'<li>{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>'
     ts = n.tasks
     by = lambda s: [t for t in ts if t['status'] == s]
     out = ''
@@ -400,7 +411,9 @@ def state_box(n):
                 f'<ul class="tl">{"".join(task_li(t) for t in back)}</ul></details>')
     if not out: out = '<p class="quiet">Nothing recorded.</p>'
     status = n.shown_status
-    return f'<section class="box"><h3>State <span class="st st-{status}">{status}</span></h3>{out}</section>'
+    strays = sum(1 for t in ts if n.is_stray(t))
+    sc = f'<span class="strays" title="Tasks outside this node\'s home ({n.task_home.title()}). Tidied at session close.">{strays} out of place</span>' if strays else ''
+    return f'<section class="box"><h3>State <span class="st st-{status}">{status}</span>{sc}</h3>{out}</section>'
 
 
 def sys_pills(n):
@@ -564,6 +577,8 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .tl li:last-child{border-bottom:0}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
 .nextline .sm{margin-left:8px;vertical-align:2px}
+.stray{flex:none;margin-left:auto;font-size:11px;color:var(--due);white-space:nowrap}.stray+.sm{margin-left:6px}
+.strays{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--due);margin-left:10px}
 .bl summary{list-style:none;cursor:pointer;display:block}.bl summary::-webkit-details-marker{display:none}
 .bl summary h4::before{content:'▸ ';}.bl[open] summary h4::before{content:'▾ '}
 .st{font-size:10px;letter-spacing:.06em;border-radius:8px;padding:1px 7px;margin-left:6px;border:1px solid var(--line);vertical-align:1px}
