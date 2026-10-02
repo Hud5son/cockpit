@@ -16,7 +16,11 @@ What the front-page prototype has settled, and what it hasn't. Tagged Decided (A
 - **System pills** on the node page's top line: Vault, Notion, Repo, only those the node uses, last touch per system on hover.
 - **Middle-level Areas** are left until the anchor and node pages are right.
 
+- **Task homes.** Tasks may sit in two places to start. Each node has a preferred home and tidies strays into it, any direction. The LLM may flag cross-source disagreement. Vault session note 2026-10-02 has the reasoning.
+
 ### Proposed
+
+- `tasks: notion | vault | repo` in STATE front matter. The cockpit marks rows outside the home as strays, read-only. Session-close does the moving.
 
 - Last touched = most recent of STATE `updated:`, last LOG line, newest file in the folder, last repo commit. Stale = 30 days. Not confirmed.
 - Kind should be written down, not inferred from files: HFM shows as a Project, VOS as an Area only because it has a child.
