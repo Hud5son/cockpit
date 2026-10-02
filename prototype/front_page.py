@@ -514,7 +514,9 @@ def state_box(n):
     status = n.shown_status
     strays = sum(1 for t in ts if n.is_stray(t))
     sc = f'<span class="strays" title="Tasks outside this node\'s home ({n.task_home.title()}). Tidied at session close.">{strays} out of place</span>' if strays else ''
-    return f'<section class="box"><h3>State <span class="st st-{status}">{status}</span>{sc}</h3>{out}</section>'
+    btn, panel = help_q(HELP_STATE)
+    return (f'<section class="box"><div class="hwrap"><h3>State <span class="st st-{status}">{status}</span>{sc}{btn}</h3>{panel}</div>'
+            f'{out}</section>')
 
 
 def sys_pills(n):
@@ -572,6 +574,18 @@ def reveal_link(folder, label='Open folder ↗'):
             f'onclick="event.stopPropagation();event.preventDefault()">{label}</a>')
 
 
+def help_q(text):
+    """A quiet '?' that opens a line or two of how-to. Returns (button, panel)."""
+    btn = '<span class="hq" title="How this works" onclick="event.stopPropagation();event.preventDefault();this.closest(\'.hwrap\').classList.toggle(\'hopen\')">?</span>'
+    return btn, f'<div class="hp">{text}</div>'
+
+
+HELP_OPEN = ('Add a file: put its path under <code>context:</code> in STATE.md, up to 5, relative to the node folder. '
+             'Or tell Claude "add X to context" and session-close writes it.')
+HELP_STATE = ('Buckets are Next, Waiting and Backlog, plus one Blocked on line. Add <code>due 2026-10-15</code> anywhere in a row to date it. '
+              'Keep the title short; put detail on indented lines beneath it.')
+
+
 def context_box(n):
     """What Claude knows about this node, grouped by what makes it load."""
     scaffold = os.path.join(n.folder, '_node') if os.path.isdir(os.path.join(n.folder, '_node')) else n.folder
@@ -583,8 +597,11 @@ def context_box(n):
         name = f'<a class="fo" href="{href}">{esc(label)}</a>' if href else esc(label)
         return (f'<li><span class="fn">{name}</span><span class="fp">{esc(note or purpose(path))}</span>'
                 f'<span class="ago">{age}</span></li>')
-    def group(title, rows, link=''):
-        return f'<div class="gh"><h4>{title}</h4>{link}</div><ul class="fl">{"".join(rows)}</ul>' if rows else ''
+    def group(title, rows, link='', helptext=''):
+        if not rows: return ''
+        btn, panel = help_q(helptext) if helptext else ('', '')
+        return (f'<div class="hwrap"><div class="gh"><h4>{title}{btn}</h4>{link}</div>{panel}</div>'
+                f'<ul class="fl">{"".join(rows)}</ul>')
 
     # 1. any conversation started at the vault root
     start = [row('Global CLAUDE.md', os.path.expanduser(os.path.join('~', '.claude', 'CLAUDE.md')), 'Your global rules'),
@@ -642,7 +659,7 @@ def context_box(n):
     return ('<section class="box"><h3 class="ch">Context<span class="lu">Last updated</span></h3>'
             + group('On vault chat initialisation', start)
             + group('Once Claude touches this folder', lazy, reveal_link(chain[0]) if chain else '')
-            + group(f'On /session-open {esc(n.code)}', opened, reveal_link(n.folder))
+            + group(f'On /session-open {esc(n.code)}', opened, reveal_link(n.folder), HELP_OPEN)
             + folder + '</section>')
 
 
@@ -804,6 +821,11 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .ch{display:flex;justify-content:space-between;align-items:baseline}
 .lu{font-size:10px;font-weight:400;letter-spacing:.06em;color:var(--muted)}
 .fl li{border-bottom:0!important;padding:4px 0}
+.hq{display:inline-block;width:14px;height:14px;line-height:13px;text-align:center;border:1px solid var(--line);border-radius:50%;
+font-size:9px;font-weight:600;color:var(--muted);margin-left:8px;cursor:pointer;vertical-align:1px;text-transform:none;letter-spacing:0}
+.hq:hover,.hopen .hq{color:var(--accent);border-color:var(--accent)}
+.hp{display:none;font-size:12px;color:var(--muted);background:var(--bg);border-radius:6px;padding:8px 12px;margin:6px 0 4px;line-height:1.5;text-transform:none;letter-spacing:0;font-weight:400}
+.hopen>.hp{display:block}.hp code{font-size:11px}
 a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-decoration:underline}
 .olink{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
 .fl{list-style:none;margin:0 0 4px;padding:0}.fl li{display:flex;gap:12px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
