@@ -39,6 +39,18 @@ def frontmatter(txt):
     return fm, m.group(2)
 
 
+def parse_state_body(body):
+    """The three STATE blocks, vault or repo: Open rows (title, detail), waiting on, blocked on."""
+    # an Open row is a numbered line; indented lines under it are its detail
+    rows = [(m.group(1), ' '.join(l.strip(' -*') for l in m.group(2).splitlines() if l.strip()))
+            for m in re.finditer(r'^\d+\.\s+(.+)\n((?:[ \t]+\S.*\n?)*)', body + '\n', re.M)]
+    w = re.search(r'\*\*Waiting on:\*\*\s*(.+?)(?:\n|$)', body)
+    waiting = w.group(1).strip() if w and not w.group(1).lower().startswith('nothing') else ''
+    b = re.search(r'\*\*Blocked on:\*\*\s*(.+?)(?:\*\*|\n|$)', body)
+    blocked = b.group(1).strip().rstrip('.') if b and not b.group(1).lower().startswith('nothing') else ''
+    return rows, waiting, blocked
+
+
 def read(p):
     try:
         with open(p, encoding='utf-8') as f: return f.read().replace('\r\n', '\n')
@@ -63,13 +75,7 @@ class Node:
         self.next = fm.get('next', '')
         self.updated = fm.get('updated', '')
         self.cadence = fm.get('cadence', '')
-        # an Open row is a numbered line; indented lines under it are its detail
-        self.open_rows = [(m.group(1), ' '.join(l.strip(' -*') for l in m.group(2).splitlines() if l.strip()))
-                          for m in re.finditer(r'^\d+\.\s+(.+)\n((?:[ \t]+\S.*\n?)*)', body + '\n', re.M)]
-        w = re.search(r'\*\*Waiting on:\*\*\s*(.+?)(?:\n|$)', body)
-        self.waiting_on = w.group(1).strip() if w and not w.group(1).lower().startswith('nothing') else ''
-        b = re.search(r'\*\*Blocked on:\*\*\s*(.+?)(?:\*\*|\n|$)', body)
-        self.blocked_on = b.group(1).strip().rstrip('.') if b and not b.group(1).lower().startswith('nothing') else ''
+        self.open_rows, self.waiting_on, self.blocked_on = parse_state_body(body)
         # sources
         notion = fm.get('notion', '')
         snap_p = os.path.join(scaffold, 'notion.json')
@@ -81,6 +87,11 @@ class Node:
             repo = r.group(0) if r else ''
         self.repo = repo
         self.repo_info = git_info(repo) if repo else None
+        # a repo keeps its own STATE.md at its root, same three blocks as the vault
+        self.repo_rows, self.repo_waiting, self.repo_blocked = [], '', ''
+        if repo:
+            _, rbody = frontmatter(read(os.path.join(os.path.expanduser(repo), 'STATE.md')))
+            self.repo_rows, self.repo_waiting, self.repo_blocked = parse_state_body(rbody)
 
     @property
     def kind(self):
@@ -106,10 +117,13 @@ class Node:
 
     @property
     def tasks(self):
-        out = [dict(split_title(r, d), status='backlog', source='vault') for r, d in self.open_rows]
-        # Blocked on / Waiting on describe the node, not tasks: never strays
-        if self.waiting_on: out.insert(0, {'status': 'waiting', 'title': self.waiting_on, 'source': 'vault', 'exempt': True})
-        if self.blocked_on: out.insert(0, {'status': 'blocked', 'title': self.blocked_on, 'source': 'vault', 'exempt': True})
+        out = []
+        for src, rows, waiting, blocked in (('vault', self.open_rows, self.waiting_on, self.blocked_on),
+                                            ('repo', self.repo_rows, self.repo_waiting, self.repo_blocked)):
+            # Blocked on / Waiting on describe the node, not tasks: never strays
+            if blocked: out.append({'status': 'blocked', 'title': blocked, 'source': src, 'exempt': True})
+            if waiting: out.append({'status': 'waiting', 'title': waiting, 'source': src, 'exempt': True})
+            out += [dict(split_title(r, d), status='backlog', source=src) for r, d in rows]
         for t in (self.notion or {}).get('tasks', []):
             out.append({'status': NOTION_MAP.get(t.get('status', '').lower(), 'backlog'), 'title': t.get('task', ''),
                         'source': 'notion', 'url': t.get('url', '')})
