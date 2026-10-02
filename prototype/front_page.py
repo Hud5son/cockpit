@@ -141,7 +141,8 @@ class Node:
     @property
     def tasks(self):
         out = self.vault_tasks + self.repo_tasks
-        for t in (self.notion or {}).get('tasks', []):
+        # Notion's manual order isn't in the API: dated tasks first, soonest first, then as pulled
+        for t in sorted((self.notion or {}).get('tasks', []), key=lambda t: (not t.get('due'), t.get('due') or '')):
             out.append({'status': NOTION_MAP.get(t.get('status', '').lower(), 'backlog'), 'title': t.get('task', ''),
                         'source': 'notion', 'url': t.get('url', ''), 'due': (t.get('due') or '')[:10]})
         return out

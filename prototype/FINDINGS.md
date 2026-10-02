@@ -19,6 +19,7 @@ What the front-page prototype has settled, and what it hasn't. Tagged Decided (A
 - **Task homes.** Tasks may sit in two places to start. Each node has a preferred home and tidies strays into it, any direction. The LLM may flag cross-source disagreement. Vault session note 2026-10-02 has the reasoning.
 - **Task home guessed unless written**: Notion if linked, else repo, else vault; `tasks:` overrides. Out-of-place rows marked "→ Home", a count on the State heading. `next:` and Blocked/Waiting exempt. Moving happens at session close, never from the page.
 - **STATE buckets**: Blocked on (node line), Next, Waiting, Backlog, Notes. A date is `due YYYY-MM-DD` in any row, shown as a chip, amber when late; Notion's Due date the same. Parser reads old shapes too: Open, `**Open**` without a colon, Blocked on / Waiting on on one line.
+- **No priority field.** Priority is the bucket (Next vs Backlog); order within a bucket ranks, numbered rows in vault and repo. Notion has no priority property and its manual order isn't in the API, so Notion rows sort by due date, dated first, then as pulled. Decided 2026-10-02.
 - **Kind parked.** Nodes are blurring; the kind pill stays but nothing depends on it.
 
 ### Proposed
