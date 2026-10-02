@@ -25,6 +25,9 @@ What the front-page prototype has settled, and what it hasn't. Tagged Decided (A
 
 - Last touched = most recent of STATE `updated:`, last LOG line, newest file in the folder, last repo commit. Stale = 30 days. Not confirmed.
 
+- **Pairing**: near-identical tasks across sources sit tight with a left bracket, plain text similarity, same section only. LLM matching at pull time if it misses pairs. Built, not yet judged by Alex.
+- **"Move all to <home>" button**, one per node on the State heading, instead of per task (per task judged overkill). Must drop paired vault copies rather than move them, and show a preview first ("2 to move, 3 already there"). First page write, so it reopens read-only-first. Parked by Alex 2026-10-02.
+
 ### Unverified
 
 - Newest-file dates may give false touches (Obsidian linter, sync). Sales showed "today". Alex to judge whether the ages feel right.

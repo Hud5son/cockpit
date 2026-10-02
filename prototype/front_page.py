@@ -611,9 +611,10 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .nextline{font-size:16px;margin:2px 0 4px;line-height:1.5}
 .tl{list-style:none;margin:0;padding:0}.tl li{padding:6px 0;border-bottom:1px solid var(--line);font-size:14px;display:flex;gap:10px;align-items:baseline}
 .tl li:last-child{border-bottom:0}
-.tl li{padding:9px 0}
-.tl li.pa,.tl li.pb{box-shadow:inset 2px 0 var(--line);padding-left:10px}
-.tl li.pa{border-bottom:0;padding-bottom:2px}.tl li.pb{padding-top:2px}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
+.tl li,.tl li:last-child{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0}
+.tl li::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
+.tl li.pa{margin-bottom:2px;border-bottom-left-radius:2px;border-bottom-right-radius:2px}
+.tl li.pb{margin-top:0;border-top-left-radius:2px;border-top-right-radius:2px}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
 .nextline .sm{margin-left:8px;vertical-align:2px}
 .stray{flex:none;margin-left:auto;font-size:11px;color:var(--due);white-space:nowrap}.stray+.sm{margin-left:6px}
