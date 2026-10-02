@@ -916,8 +916,37 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 
+def supervise(port, open_browser=False):
+    """Run the server as a child process; restart it when this file changes or the child dies.
+    --open (the desktop button) opens the page, starting the server first if it isn't running."""
+    import socket, threading, time, webbrowser
+    url = f'http://localhost:{port}'
+    with socket.socket() as s:
+        if s.connect_ex(('127.0.0.1', port)) == 0:
+            if open_browser: webbrowser.open(url)
+            print(f'Port {port} already in use, cockpit is probably running. Exiting.'); return
+    if open_browser: threading.Timer(1.5, webbrowser.open, [url]).start()
+    me = os.path.abspath(__file__)
+    env = dict(os.environ, COCKPIT_CHILD='1')
+    while True:
+        stamp = os.path.getmtime(me)
+        child = subprocess.Popen([sys.executable, me, str(port)], env=env)
+        try:
+            while child.poll() is None and os.path.getmtime(me) == stamp:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            child.terminate(); return
+        if child.poll() is None:
+            print('front_page.py changed, restarting'); child.terminate(); child.wait()
+        else:
+            print(f'server exited ({child.returncode}), restarting in 2s'); time.sleep(2)
+
+
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    args = [a for a in sys.argv[1:] if a != '--open']
+    port = int(args[0]) if args else 8765
+    if not os.environ.get('COCKPIT_CHILD'):
+        supervise(port, '--open' in sys.argv); sys.exit()
     host = os.environ.get('HOST', '127.0.0.1')  # HOST=0.0.0.0 to serve on the LAN
     print(f'Cockpit prototype on http://{host}:{port}  (vault: {VAULT})')
     ThreadingHTTPServer((host, port), H).serve_forever()

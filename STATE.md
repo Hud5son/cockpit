@@ -4,10 +4,7 @@ updated: 2026-10-02
 
 **Blocked on:** nothing.
 
-**Next:**
-
-1. Self-restart and start-at-login for the server
-   - stdlib file watch; a Startup-folder shortcut needs Alex's OK
+**Next:** nothing.
 
 **Waiting:** nothing.
 
