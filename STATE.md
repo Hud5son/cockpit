@@ -27,5 +27,7 @@ updated: 2026-10-02
    - not before CKP ends 2026-11-15; the model is still moving. Decided 2026-10-02
 8. Global CLAUDE.md and memory index have no link
    - outside the vault, Obsidian can't open them; Windows has no .md app set
+9. Skills summary
+   - which skills exist (vault, global, plugin), what each is for from its description, and which a node uses as its runbook
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
