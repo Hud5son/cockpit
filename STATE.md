@@ -4,7 +4,10 @@ updated: 2026-10-02
 
 **Blocked on:** nothing.
 
-**Next:** nothing.
+**Next:**
+
+1. Self-restart and start-at-login for the server
+   - stdlib file watch; a Startup-folder shortcut needs Alex's OK
 
 **Waiting:** nothing.
 
@@ -21,5 +24,8 @@ updated: 2026-10-02
 6. Check this node button
    - Read-only LLM run, PC only, result cached
 7. Real build: FastAPI, out of prototype/
+   - not before CKP ends 2026-11-15; the model is still moving. Decided 2026-10-02
+8. Global CLAUDE.md and memory index have no link
+   - outside the vault, Obsidian can't open them; Windows has no .md app set
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
