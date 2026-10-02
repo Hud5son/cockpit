@@ -515,13 +515,14 @@ def variant_e(nodes, roots):
             done = ' done' if c.status == 'done' else ''
             tw = '<span class="tw">▸</span>' if c.children else '<span class="tw blank"></span>'
             sub = f'<ul class="sub">{tree(c.children)}</ul>' if c.children else ''
-            out += (f'<li class="it" data-k="{esc(c.rel)}"><div class="nv{done}" hx-get="/view?p={qp(c.rel)}" hx-target="#main">'
+            out += (f'<li class="it{done}" data-k="{esc(c.rel)}"><div class="nv{done}" hx-get="/view?p={qp(c.rel)}" hx-target="#main">'
                     f'{tw}<span class="kp kp-{c.kind}">{c.kind[0].upper()}</span><span class="hn">{esc(c.name)}</span>'
                     f'<span class="ago">{ago(touched(c))}</span></div>{sub}</li>')
         return out
     nav = ''.join(f'<div class="it anc-it open" data-k="{esc(a.rel)}"><div class="anc" hx-get="/view?p={qp(a.rel)}" hx-target="#main">'
                   f'<span class="tw">▸</span>{esc(a.name)}</div><ul class="sub">{tree(a.children)}</ul></div>' for a in anchors)
-    tools = '<div class="navtools"><button data-all="1">Expand all</button><button data-all="0">Collapse all</button></div>'
+    tools = ('<div class="navtools"><button data-all="1">Expand all</button><button data-all="0">Collapse all</button>'
+             '<button id="donebtn">Show done</button></div>')
     js = '''<script>(function(){
 const KEY='cockpit.open';let open;try{open=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){open=null}
 const items=()=>document.querySelectorAll('nav .it');
@@ -529,7 +530,11 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify([...items()].filter(
 if(open)items().forEach(i=>i.classList.toggle('open',open.includes(i.dataset.k)));
 document.addEventListener('click',e=>{const t=e.target.closest('nav .tw');if(t&&!t.classList.contains('blank')){e.stopPropagation();e.preventDefault();
 t.closest('.it').classList.toggle('open');save();return}
-const b=e.target.closest('nav [data-all]');if(b){items().forEach(i=>i.classList.toggle('open',b.dataset.all==='1'));save()}},true);
+const b=e.target.closest('nav [data-all]');if(b){items().forEach(i=>i.classList.toggle('open',b.dataset.all==='1'));save()}
+if(e.target.id==='donebtn'){setDone(!document.body.classList.contains('show-done'))}},true);
+function setDone(on){document.body.classList.toggle('show-done',on);const d=document.getElementById('donebtn');if(d)d.textContent=on?'Hide done':'Show done';
+try{localStorage.setItem('cockpit.done',on?'1':'0')}catch(e){}}
+let sd=false;try{sd=localStorage.getItem('cockpit.done')==='1'}catch(e){}setDone(sd);
 })();</script>'''
     return f'<div class="ve"><nav>{tools}{nav}</nav><section id="main">{anchor_page(anchors[0])}</section></div>{js}'
 
@@ -604,7 +609,7 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .anc{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:4px}
 .anc:hover,.nv:hover{background:var(--surface)}
 .nv{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;border-radius:4px;font-size:14px}
-.nv.done{opacity:.45}
+.nv.done{opacity:.45}nav li.it.done{display:none}body.show-done nav li.it.done{display:block}
 .ve nav ul.sub{margin:0;padding-left:16px;display:none}.ve nav .it.open>ul.sub{display:block}.anc-it>ul.sub{padding-left:0;margin-bottom:14px}
 .tw{flex:none;width:14px;display:inline-block;text-align:center;color:var(--muted);font-size:11px;cursor:pointer;transition:transform .12s;user-select:none}
 .tw:hover{color:var(--ink)}.it.open>.nv>.tw,.it.open>.anc>.tw{transform:rotate(90deg)}.tw.blank{cursor:default}
