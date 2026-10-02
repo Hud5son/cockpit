@@ -10,7 +10,7 @@ updated: 2026-10-02
 
 1. Decide what counts as last touched
    - Proposed: newest of STATE updated, last LOG line, newest file, last commit. Upwork shows the conflict
-2. Promote Notion backlog to Next
+2. Promote Notion backlog to Next, due 2026-10-15
    - Discussed 2026-10-02, not decided: first page write, Notion only, confirm click
 3. Read STATE buckets: Next, Waiting, Backlog, Scheduled
    - Awaits the spec change in the vault; old Open counts as Backlog
