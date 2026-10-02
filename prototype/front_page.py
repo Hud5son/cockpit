@@ -527,6 +527,70 @@ def sys_pills(n):
     return ''.join(f'<span class="sp sp-{s}" title="{esc(tips[s])}">{s.title()}</span>' for s in n.sources)
 
 
+def purpose(path):
+    """A file says what it is for in its own first line: first sentence of the body, headings skipped."""
+    if not path.endswith('.md'): return ''
+    _, body = frontmatter(read(path))
+    for line in body.splitlines():
+        t = line.strip().strip('*_>').strip()
+        if t and not t.startswith('#') and not t.startswith('---'):
+            m = re.match(r'(.+?[.!?])(\s|$)', t)
+            t = re.sub(r'\[\[([^]|]+\|)?([^]]+)\]\]', r'\2', (m.group(1) if m else t))
+            return t[:110] + ('…' if len(t) > 110 else '')
+    return ''
+
+
+def mtime_date(path):
+    try: return datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d')
+    except OSError: return ''
+
+
+def context_box(n):
+    scaffold = os.path.join(n.folder, '_node') if os.path.isdir(os.path.join(n.folder, '_node')) else n.folder
+    def row(label, path, note=''):
+        age = ago(mtime_date(path)) if os.path.exists(path) else ''
+        desc = note or purpose(path)
+        return (f'<li><span class="fn">{esc(label)}</span><span class="fp">{esc(desc)}</span>'
+                f'<span class="ago">{age}</span></li>')
+    # always loaded: global, then every CLAUDE.md from the vault root down to this node
+    rules = [('Global CLAUDE.md', os.path.expanduser(r'~\.claude\CLAUDE.md'), 'Your global rules')]
+    d, chain = n.folder, []
+    while len(d) >= len(VAULT):
+        if os.path.exists(os.path.join(d, 'CLAUDE.md')): chain.append(d)
+        if d == VAULT: break
+        d = os.path.dirname(d)
+    rules += [(('Vault' if c == VAULT else os.path.basename(c)) + '/CLAUDE.md', os.path.join(c, 'CLAUDE.md'), 'Rules for this folder and below')
+              for c in reversed(chain)]
+    # loaded on open: NODE, STATE and every context: path, which may be relative to the node or its _node/
+    on_open = [('NODE.md', os.path.join(scaffold, 'NODE.md'), 'What this is'), ('STATE.md', os.path.join(scaffold, 'STATE.md'), 'Where it is')]
+    loaded = {os.path.normcase(p) for _, p, _ in on_open}
+    ctx = n.fm.get('context', [])
+    for c in ctx if isinstance(ctx, list) else []:
+        cands = [os.path.normpath(os.path.join(base, c)) for base in (n.folder, scaffold)]
+        hit = next((p for p in cands if os.path.exists(p)), None)
+        on_open.append((c, hit or cands[0], '' if hit else 'Missing: listed in context: but not found'))
+        if hit: loaded.add(os.path.normcase(hit))
+    # not loaded: the rest of the node's own files, newest first; child nodes are in the nav
+    kids = {c.folder for c in n.children}
+    files, folders = [], []
+    for e in os.scandir(n.folder):
+        if e.name.startswith(('_', '.')) or e.path in kids: continue
+        if e.is_dir():
+            cnt = sum(len(fs) for _, _, fs in os.walk(e.path))
+            folders.append((e.name, cnt, max((mtime_date(os.path.join(r, f)) for r, _, fs in os.walk(e.path) for f in fs), default='')))
+        elif os.path.normcase(e.path) not in loaded and e.name not in ('CLAUDE.md',) and not e.name.endswith('overview.html'):
+            files.append((mtime_date(e.path), e.name, e.path))
+    files.sort(reverse=True)
+    not_loaded = ''.join(row(name, p) for _, name, p in files)
+    not_loaded += ''.join(f'<li class="fold"><span class="fn">{esc(name)}/</span><span class="fp">{cnt} files</span><span class="ago">{ago(last)}</span></li>'
+                          for name, cnt, last in sorted(folders, key=lambda f: f[2], reverse=True))
+    link = 'obsidian://open?vault=Vault&file=' + qp(os.path.relpath(os.path.join(scaffold, 'NODE.md'), VAULT).replace(os.sep, '/'))
+    return (f'<section class="box"><h3>Context <a class="olink" href="{link}">Open in Obsidian ↗</a></h3>'
+            f'<h4>Always loaded</h4><ul class="fl">{"".join(row(*r) for r in rules)}</ul>'
+            f'<h4>Loaded on open</h4><ul class="fl">{"".join(row(*r) for r in on_open)}</ul>'
+            + (f'<h4>Not loaded</h4><ul class="fl">{not_loaded}</ul>' if not_loaded else '') + '</section>')
+
+
 def node_page(n):
     scaffold = os.path.join(n.folder, '_node') if os.path.isdir(os.path.join(n.folder, '_node')) else n.folder
     txt = read(os.path.join(scaffold, 'NODE.md'))
@@ -543,7 +607,7 @@ def node_page(n):
     return (f'<div class="anchor"><h1>{esc(n.name)}</h1>'
             f'<p class="meta"><span class="kp kp-{n.kind}">{n.kind}</span>{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
-            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}</div>')
+            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{context_box(n)}</div>')
 
 
 def view(n):
@@ -676,6 +740,10 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 #main .detail{max-width:720px}
 .box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 22px 16px;margin:24px 0 32px}
 .box h3{margin-top:16px}
+.olink{float:right;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
+.fl{list-style:none;margin:0 0 4px;padding:0}.fl li{display:flex;gap:12px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.fl li:last-child{border-bottom:0}.fn{flex:none;width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp{flex:1;color:var(--muted)}.fl .ago{flex:none}.fl li.fold .fn{color:var(--muted)}
 .box h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 4px;display:inline-block}
 .h-blocked{color:var(--blocked)!important}.h-waiting{color:var(--waiting)}
 .nextline{font-size:16px;margin:2px 0 4px;line-height:1.5}
