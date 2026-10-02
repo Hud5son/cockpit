@@ -387,28 +387,64 @@ def items(body):
     return lead, rows
 
 
+def norm(s):
+    return ' '.join(re.findall(r'[a-z0-9]+', s.lower().replace("'s", '')))
+
+
+def pair_up(rows):
+    """Reorder rows so a vault task and its near-identical copy from another source sit together.
+    Plain text similarity for now; LLM matching, cached at pull time, if this misses pairs."""
+    from difflib import SequenceMatcher
+    cands = []
+    for i, a in enumerate(rows):
+        for j, b in enumerate(rows):
+            if j <= i or a['source'] == b['source']: continue
+            na, nb = norm(a['title']), norm(b['title'])
+            r = SequenceMatcher(None, na, nb).ratio()
+            wa, wb = set(na.split()), set(nb.split())
+            short = min((wa, wb), key=len)
+            cover = len(wa & wb) / len(short) if len(short) >= 4 else 0  # the shorter one's words all appear in the longer
+            score = max(r, cover)
+            if score >= 0.8: cands.append((score, i, j))
+    used, partner = set(), {}
+    for r, i, j in sorted(cands, reverse=True):
+        if i in used or j in used: continue
+        used |= {i, j}; partner[i] = j
+    out, placed = [], set()
+    for i, t in enumerate(rows):
+        if i in placed: continue
+        if i in partner:
+            out += [(t, 'pa'), (rows[partner[i]], 'pb')]; placed |= {i, partner[i]}
+        elif i not in used:
+            out.append((t, '')); placed.add(i)
+    return out
+
+
 def state_box(n):
-    def task_li(t):
+    def task_li(t, cls=''):
         title = esc(t['title'][:200])
         if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
         stray = (f'<span class="stray" title="Out of place: this node keeps its tasks in {n.task_home.title()}">→ {n.task_home.title()}</span>'
                  if n.is_stray(t) else '')
-        return f'<li>{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>'
+        tip = ' title="Same task in more than one place"' if cls else ''
+        return f'<li class="{cls}"{tip}>{title}{stray}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>'
+    def ul(rows):
+        return f'<ul class="tl">{"".join(task_li(t, c) for t, c in pair_up(rows))}</ul>'
     ts = n.tasks
     by = lambda s: [t for t in ts if t['status'] == s]
     out = ''
     nxt = by('next')
     if n.next or nxt:
         head = f'<p class="nextline">{esc(n.next)}<span class="sm sm-vault" title="vault">V</span></p>' if n.next else ''
-        more = f'<ul class="tl">{"".join(task_li(t) for t in nxt)}</ul>' if nxt else ''
+        more = ul(nxt) if nxt else ''
         out += f'<h4>Next</h4>{head}{more}'
     for s in ('blocked', 'waiting'):
         rows = by(s)
-        if rows: out += f'<h4 class="h-{s}">{s.title()}</h4><ul class="tl">{"".join(task_li(t) for t in rows)}</ul>'
+        if rows: out += f'<h4 class="h-{s}">{s.title()}</h4>{ul(rows)}'
     back = by('backlog')
     if back:
         out += (f'<details class="bl"><summary><h4>Backlog <span class="muted">{len(back)}</span></h4></summary>'
-                f'<ul class="tl">{"".join(task_li(t) for t in back)}</ul></details>')
+                f'{ul(back)}</details>')
     if not out: out = '<p class="quiet">Nothing recorded.</p>'
     status = n.shown_status
     strays = sum(1 for t in ts if n.is_stray(t))
@@ -574,7 +610,10 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .h-blocked{color:var(--blocked)!important}.h-waiting{color:var(--waiting)}
 .nextline{font-size:16px;margin:2px 0 4px;line-height:1.5}
 .tl{list-style:none;margin:0;padding:0}.tl li{padding:6px 0;border-bottom:1px solid var(--line);font-size:14px;display:flex;gap:10px;align-items:baseline}
-.tl li:last-child{border-bottom:0}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
+.tl li:last-child{border-bottom:0}
+.tl li{padding:9px 0}
+.tl li.pa,.tl li.pb{box-shadow:inset 2px 0 var(--line);padding-left:10px}
+.tl li.pa{border-bottom:0;padding-bottom:2px}.tl li.pb{padding-top:2px}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
 .nextline .sm{margin-left:8px;vertical-align:2px}
 .stray{flex:none;margin-left:auto;font-size:11px;color:var(--due);white-space:nowrap}.stray+.sm{margin-left:6px}
