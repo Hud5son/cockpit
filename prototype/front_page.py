@@ -618,16 +618,14 @@ def context_box(n):
         hist.append(f'<li class="fold"><span class="fn">retired/</span><span class="fp">{len(os.listdir(ret))} old front pages</span><span class="ago"></span></li>')
 
     work_first = next((p for _, _, p in sorted(files, reverse=True)), os.path.join(scaffold, 'NODE.md'))
-    n_start, n_open, n_disk = len(start) + len(lazy), len(opened), len(disk) + len(hist)
-    summary = (f'<p class="csum">A fresh conversation knows <b>{n_start}</b> of these. <code>/session-open {esc(n.code)}</code> adds '
-               f'<b>{n_open}</b>. <b>{n_disk}</b> more are on disk, unknown until asked.</p>')
-    return (f'<section class="box"><h3>Context</h3>{summary}'
-            + group('Any conversation, from the first message', start)
+    rest = disk + hist
+    folder = (f'<details class="ff"><summary><h4>Folders &amp; files <span class="muted">{len(rest)}, not loaded</span></h4></summary>'
+              f'{obs_link(work_first)}<ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
+    return ('<section class="box"><h3>Context</h3>'
+            + group('On vault chat initialisation', start)
             + group('Once Claude touches this folder', lazy)
             + group(f'On /session-open {esc(n.code)}', opened, obs_link(os.path.join(scaffold, 'NODE.md')))
-            + group('On disk, not loaded: the work', disk, obs_link(work_first))
-            + group('On disk, not loaded: its history', hist, obs_link(first_note or log))
-            + '</section>')
+            + folder + '</section>')
 
 
 def node_page(n):
@@ -779,7 +777,8 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 #main .detail{max-width:720px}
 .box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 22px 16px;margin:24px 0 32px}
 .box h3{margin-top:16px}
-.csum{font-size:14px;margin:4px 0 6px}.csum code{font-size:12px}
+.ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
+.ff summary h4::before{content:'▸ '}.ff[open] summary h4::before{content:'▾ '}.ff h4 .muted{font-weight:400;text-transform:none;letter-spacing:0}
 .olink{float:right;margin-top:16px;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
 .fl{list-style:none;margin:0 0 4px;padding:0}.fl li{display:flex;gap:12px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .fl li:last-child{border-bottom:0}.fn{flex:none;width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
