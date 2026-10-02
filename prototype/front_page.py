@@ -565,7 +565,7 @@ def context_box(n):
         return (f'<li><span class="fn">{esc(label)}</span><span class="fp">{esc(note or purpose(path))}</span>'
                 f'<span class="ago">{age}</span></li>')
     def group(title, rows, link=''):
-        return f'<h4>{title}</h4>{link}<ul class="fl">{"".join(rows)}</ul>' if rows else ''
+        return f'<div class="gh"><h4>{title}</h4>{link}</div><ul class="fl">{"".join(rows)}</ul>' if rows else ''
 
     # 1. any conversation started at the vault root
     start = [row('Global CLAUDE.md', os.path.expanduser(os.path.join('~', '.claude', 'CLAUDE.md')), 'Your global rules'),
@@ -619,9 +619,10 @@ def context_box(n):
 
     work_first = next((p for _, _, p in sorted(files, reverse=True)), os.path.join(scaffold, 'NODE.md'))
     rest = disk + hist
-    folder = (f'<details class="ff"><summary><h4>Folders &amp; files <span class="muted">{len(rest)}, not loaded</span></h4></summary>'
-              f'{obs_link(work_first)}<ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
-    return ('<section class="box"><h3>Context</h3>'
+    link = obs_link(work_first).replace('<a ', '<a onclick="event.stopPropagation()" ', 1)
+    folder = (f'<details class="ff"><summary><div class="gh"><h4>Folders &amp; files <span class="muted">{len(rest)}, not loaded</span></h4>'
+              f'{link}</div></summary><ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
+    return ('<section class="box"><h3 class="ch">Context<span class="lu">Last updated</span></h3>'
             + group('On vault chat initialisation', start)
             + group('Once Claude touches this folder', lazy)
             + group(f'On /session-open {esc(n.code)}', opened, obs_link(os.path.join(scaffold, 'NODE.md')))
@@ -778,8 +779,15 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 22px 16px;margin:24px 0 32px}
 .box h3{margin-top:16px}
 .ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
-.ff summary h4::before{content:'▸ '}.ff[open] summary h4::before{content:'▾ '}.ff h4 .muted{font-weight:400;text-transform:none;letter-spacing:0}
-.olink{float:right;margin-top:16px;font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
+.ff summary h4,.bl summary h4{position:relative}
+.ff summary h4::before,.bl summary h4::before{content:'▸';position:absolute;left:-13px}
+.ff[open] summary h4::before,.bl[open] summary h4::before{content:'▾'}
+.ff h4 .muted{font-weight:400;text-transform:none;letter-spacing:0}
+.gh{display:flex;justify-content:space-between;align-items:baseline}
+.ch{display:flex;justify-content:space-between;align-items:baseline}
+.lu{font-size:10px;font-weight:400;letter-spacing:.06em;color:var(--muted)}
+.fl li{border-bottom:0!important;padding:4px 0}
+.olink{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--accent);text-decoration:none}
 .fl{list-style:none;margin:0 0 4px;padding:0}.fl li{display:flex;gap:12px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
 .fl li:last-child{border-bottom:0}.fn{flex:none;width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fp{flex:1;color:var(--muted)}.fl .ago{flex:none}.fl li.fold .fn{color:var(--muted)}
@@ -804,7 +812,6 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .stray{flex:none;margin-left:auto;font-size:11px;color:var(--due);white-space:nowrap}.stray+.sm{margin-left:6px}
 .strays{font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--due);margin-left:10px}
 .bl summary{list-style:none;cursor:pointer;display:block}.bl summary::-webkit-details-marker{display:none}
-.bl summary h4::before{content:'▸ ';}.bl[open] summary h4::before{content:'▾ '}
 .st{font-size:10px;letter-spacing:.06em;border-radius:8px;padding:1px 7px;margin-left:6px;border:1px solid var(--line);vertical-align:1px}
 .st-blocked{color:var(--blocked);border-color:var(--blocked)}.st-due{color:var(--due);border-color:var(--due)}.st-active{color:var(--active);border-color:var(--active)}
 .sp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 9px;border-radius:10px;color:#fff}
