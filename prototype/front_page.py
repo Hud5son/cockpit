@@ -535,7 +535,7 @@ def top_page():
     if st['data']:
         r = task_review(st['data']); c = r['counts']; f = r['findings']
         bits = [f'{c["open"]} open'] + [f'{len(f[k])} {lbl.lower()}' for k, lbl in REVIEW_SECTIONS if f.get(k)]
-        review = (f'<p>{esc(" · ".join(bits))}</p><p><a class="olink" href="#" hx-get="/task-review" hx-target="#main">Open Task review →</a></p>')
+        review = (f'<p>{esc(" · ".join(bits))}</p><p><a class="olink" href="#" hx-get="/task-review" hx-target="#main">Open Task cleanup →</a></p>')
     else:
         review = f'<p class="quiet">Notion unavailable: {esc(st["error"])}</p>'
     cols = ''
@@ -556,7 +556,7 @@ def top_page():
                  f'<h3>Notion Next</h3><p>{nxt} task{"s" if nxt != 1 else ""} in Next</p></section>')
     return (f'<div class="top"><h1>Overview</h1>'
             f'<div class="topstrip"><section class="box"><h3>Dated today or late <span class="muted">({len(dated)})</span></h3>{due_box}</section>'
-            f'<section class="box"><h3>Task review</h3>{review}</section></div>'
+            f'<section class="box"><h3>Task cleanup</h3>{review}</section></div>'
             f'<div class="topcols">{cols}</div>'
             f'<p class="muted topnote">"Untouched" reads file dates, so the 2026-10-03 renames and type sweep make every node look fresh until early November.</p></div>')
 
@@ -1053,7 +1053,7 @@ def task_review_page(force=False, msg=''):
     st = notion_state(force)
     rerun = '<a class="olink" href="#" hx-get="/task-review?force=1" hx-target="#main">Rerun ↻</a>'
     if not st['data']:
-        return f'<div class="anchor"><h1>Task review</h1><p class="quiet">Notion unavailable: {esc(st["error"])}</p>{rerun}</div>'
+        return f'<div class="anchor"><h1>Task cleanup</h1><p class="quiet">Notion unavailable: {esc(st["error"])}</p>{rerun}</div>'
     r = task_review(st['data'])
     c = r['counts']
     sug = _suggest['rows']
@@ -1090,7 +1090,7 @@ def task_review_page(force=False, msg=''):
     note = ''
     if _suggest['error']: note = f'<p class="h-blocked">Suggest failed: {esc(_suggest["error"])}</p>'
     if msg: note += f'<p class="muted">{esc(msg)}</p>'
-    return (f'<div class="anchor"><div class="hwrap"><h1>Task review {btn}</h1>{panel}</div>'
+    return (f'<div class="anchor"><div class="hwrap"><h1>Task cleanup {btn}</h1>{panel}</div>'
             f'<p class="meta"><span class="muted">{c["open"]} open of {c["total"]} tasks · {c["projects"]} projects · '
             f'pulled {st["data"]["pulled"][11:16]}{stale}</span> {rerun} '
             f'<a class="olink" href="#" hx-get="/edit-skill" hx-swap="none" title="Opens the task-review skill in VS Code. '
@@ -1120,7 +1120,7 @@ def variant_e(nodes, roots):
                   f'<span class="tw">▸</span>{esc(a.name)}</div><ul class="sub">{tree(a.children)}</ul></div>' for a in anchors)
     # two layers (2026-10-03): pages and actions on top, then the controls for the tree right above the tree
     tools = ('<div class="nh">Pages</div>'
-             '<div class="navpages"><a href="#" class="on" hx-get="/top" hx-target="#main">Overview</a><a href="#" hx-get="/task-review" hx-target="#main">Task review</a>'
+             '<div class="navpages"><a href="#" class="on" hx-get="/top" hx-target="#main">Overview</a><a href="#" hx-get="/task-review" hx-target="#main">Task cleanup</a>'
              '<a href="#" hx-get="/workflows" hx-target="#main">Workflows</a></div>'
              '<div class="navtools"><button hx-get="/notion-refresh" hx-swap="none" '
              'title="Pull Notion again now (otherwise every 5 minutes)">↻ Refresh Notion</button></div>'
@@ -1251,7 +1251,7 @@ header h1 a.home{color:inherit;text-decoration:none}header h1 a.home:hover{color
 .wft td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}.wft .uchip{display:inline-block;margin:0 4px 4px 0}
 .wft tr.click{cursor:pointer}.wft tr.click:hover td{background:var(--bg)}.wfwhere{font-size:12px;margin-top:2px}
 .duechip{font-size:11px;color:#fff;background:var(--due);border-radius:9px;padding:1px 6px;margin-left:6px}
-.top h1{font-size:24px;font-weight:600;margin:4px 0 14px}.topstrip{display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start}
+.top h1{font-size:24px;font-weight:600;margin:4px 0 14px}.topstrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;align-items:start}.topstrip>.box:first-child{grid-column:span 2}
 .topstrip .box{margin:0}.topcols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:20px;align-items:start}
 .topcol{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
 .topcol h2{font-size:18px;font-weight:600;margin:0 0 4px;cursor:pointer}.topcol h2:hover{color:var(--accent)}

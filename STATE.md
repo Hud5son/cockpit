@@ -4,14 +4,14 @@ updated: 2026-10-03
 
 **Blocked on:** nothing.
 
-**Next:** nothing.
+**Next:**
 
-**Waiting:**
+1. Use the cockpit as the session-open page
+   - objective 1, two straight weeks by 2026-11-15; note what's missing as rows here
+2. Run in place, thought through
+   - Run hands off to Claude Code for now; propose read-only, apply by resuming the session, writes blocked until the click
 
-1. Claude Code CLI login – Alex
-   - headless runs fail "OAuth session expired"; Suggest actions untested end to end until then
-2. First real Apply ticked – Alex
-   - the Notion write path has not run yet; watch the first one
+**Waiting:** nothing.
 
 **Backlog:**
 
