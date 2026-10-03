@@ -51,5 +51,7 @@ updated: 2026-10-03
     - note in the skill that the page mirrors steps 1, 3 and 5 in code
 15. Circle-and-tick on task rows
     - Notion's checkmark icon: empty circle open, ticked done; doubles as a status cue
+16. Workflows page, from the mock
+    - list plus detail as mocked 2026-10-03 (`/workflows-mock`); real data waits on the `workflow:` front matter in runbooks (VOS backlog)
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.

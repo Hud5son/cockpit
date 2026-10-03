@@ -704,7 +704,7 @@ def context_box(n):
     rest = disk + hist
     folder = (f'<details class="ff"><summary><div class="gh"><h4>Folders &amp; files <span class="muted">({len(rest)}, not loaded)</span></h4>'
               f'{reveal_link(n.folder)}</div></summary><ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
-    return ('<section class="box"><h3 class="ch">Context<span class="lu">Last updated</span></h3>'
+    return ('<section class="box"><h3 class="ch">LLM Context<span class="lu">Last updated</span></h3>'
             + group('On vault chat initialisation', start)
             + group('Once Claude touches this folder', lazy, reveal_link(chain[0]) if chain else '')
             + group(f'On /session-open {esc(n.code)}', opened, reveal_link(n.folder), HELP_OPEN)
@@ -725,20 +725,142 @@ def node_page(n):
     objs = render(obj) if obj else '<p class="quiet">None yet.</p>'
     legacy = f'<h3>Done when <span class="old">old shape</span></h3>{render(old)}' if old else ''
     return (f'<div class="anchor"><h1>{esc(n.name)}</h1>'
-            f'<p class="meta"><span class="kp kp-{n.kind}">{n.kind}</span>{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
+            f'<p class="meta"><span class="kp kp-{n.kind}">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
-            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{child_box(n)}{context_box(n)}</div>')
+            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
 
 
-def child_box(n):
-    """Child state: what the nodes below are doing, rolled up on every read, never stored (2026-10-03)."""
-    if not n.children: return ''
+def runbook_path(n):
+    """A workflow's runbook from STATE `runbook:`, vault-relative or absolute; only an existing .md counts."""
+    rb = str(n.fm.get('runbook', '') or '')
+    if not rb: return ''
+    path = os.path.normpath(rb if os.path.isabs(os.path.expanduser(rb)) else os.path.join(VAULT, rb))
+    return path if path.endswith('.md') and os.path.isfile(path) else ''
+
+
+def workflow_box(n):
+    """A workflow's runbook, cadence and what it uses, all from its own STATE (decided 2026-10-03).
+    A project building one shows a pointer instead (`builds:`)."""
+    if n.kind == 'workflow':
+        uses = n.fm.get('uses') if isinstance(n.fm.get('uses'), list) else []
+        chip = lambda u: (f'<span class="uchip u-skill">{esc(u[6:])}</span>' if u.startswith('skill ')
+                          else f'<span class="uchip u-conn">{esc(u)}</span>')
+        rb = runbook_path(n)
+        rb_html = (f'<a class="olink" href="#" hx-get="/open-runbook?p={qp(n.rel)}" hx-swap="none" title="Opens in VS Code">'
+                   f'{esc(str(n.fm.get("runbook")))} ↗</a>') if rb else '<span class="quiet">not set</span>'
+        return (f'<section class="box"><h3>Workflow</h3><dl class="wfkv">'
+                f'<dt>Cadence</dt><dd>{esc(n.cadence or "–")}</dd>'
+                f'<dt>Runbook</dt><dd>{rb_html}</dd>'
+                f'<dt>Uses</dt><dd>{"".join(chip(str(u)) for u in uses) or "–"}</dd></dl></section>')
+    b = str(n.fm.get('builds', '') or '')
+    if b:
+        return (f'<section class="box"><h3>Builds a workflow</h3><p><a href="#" hx-get="/view?p={qp(b.replace("/", os.sep))}" '
+                f'hx-target="#main">{esc(b)}</a></p></section>')
+    return ''
+
+
+def label_pill(n):
+    """What kind of grouping an Area is: a word only, never behaviour (root CLAUDE.md, 2026-10-03)."""
+    lab = n.fm.get('label', '')
+    return f'<span class="lbl" title="Area label">{esc(lab)}</span>' if lab else ''
+
+
+ROLLUP_ORDER = ('blocked', 'due', 'active', 'waiting')  # done is left out: it needs nothing
+
+
+def rollup(n):
+    """Counts by status of every project and workflow below an Area, at any depth."""
+    counts = {}
+    for d in descendants(n):
+        if d.kind != 'area': counts[d.shown_status] = counts.get(d.shown_status, 0) + 1
+    return '<span class="ru">·</span>'.join(f'<span class="ru ru-{s}">{counts[s]} {s}</span>' for s in ROLLUP_ORDER if counts.get(s))
+
+
+def child_rows(n):
+    """One row per child, type first. An Area row carries its roll-up and opens in place to its own children."""
     rows = ''
     for c in sorted(n.children, key=lambda c: touched(c), reverse=True):
         nxt = f' <span class="muted">– {esc(c.next[:120])}</span>' if c.next else ''
-        rows += (f'<li><a href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
-                 f'<span class="kp kp-{c.kind}">{c.kind}</span> <span class="st st-{c.shown_status}">{c.shown_status}</span>{nxt}</li>')
-    return f'<section class="box"><h3>Child state <span class="muted">({len(n.children)})</span></h3><ul class="tl">{rows}</ul></section>'
+        head = (f'<span class="kp kp-{c.kind}">{c.kind}</span> '
+                f'<a href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
+                f'<span class="st st-{c.shown_status}">{c.shown_status}</span>')
+        if c.kind == 'area' and c.children:
+            rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{head}<span class="rus">{rollup(c)}</span></summary>'
+                     f'<ul class="tl nodes sub">{child_rows(c)}</ul></details></li>')
+        else:
+            rows += f'<li><span class="tw blank"></span>{head}{nxt}</li>'
+    return rows
+
+
+def child_box(n):
+    """Child state: what the nodes below are doing, rolled up on every read, never stored (2026-10-03).
+    Looks through Areas: each Area row shows counts for everything below it and expands in place."""
+    if not n.children: return ''
+    return (f'<section class="box"><h3>Child state <span class="muted">({len(n.children)})</span></h3>'
+            f'<ul class="tl nodes">{child_rows(n)}</ul></section>')
+
+
+# ---------- Workflows: MOCK, hard-coded, to judge the shape before building (2026-10-03) ----------
+
+MOCK_WF = [
+    {'id': 'mne', 'name': 'Meeting notes', 'lives': 'MNE node', 'trigger': 'by hand', 'runs': 'skill', 'status': 'live', 'last': '28 Sep', 'due': False},
+    {'id': 'gar', 'name': 'Garmin read', 'lives': 'GAR node', 'trigger': 'monthly', 'runs': 'skill', 'status': 'live', 'last': '14 Sep', 'due': True},
+    {'id': 'hfm', 'name': 'Paperwork scan', 'lives': 'HFM project', 'trigger': 'weekly', 'runs': 'skill', 'status': 'building', 'last': '19 Sep', 'due': True},
+    {'id': 'kbs', 'name': 'KB health check', 'lives': 'n8n · KBS', 'trigger': 'monthly', 'runs': 'n8n', 'status': 'building', 'last': '–', 'due': False},
+    {'id': 'gro', 'name': 'Groceries', 'lives': 'n8n · GRO', 'trigger': 'event', 'runs': 'n8n', 'status': 'live', 'last': '?', 'due': False},
+    {'id': 'rc', 'name': 'Remote Control', 'lives': 'scheduled task', 'trigger': 'logon, wake', 'runs': 'script', 'status': 'live', 'last': 'today', 'due': False},
+]
+MOCK_STEPS = [  # Paperwork scan, as its runbook's workflow: front matter would declare it
+    ('Drive Inbasket', 'claude.ai Drive · gmail', 'conn'),
+    ('Propose name, folder, action', 'paperwork-scan skill', 'skill'),
+    ('Your ticks', 'you, on this page', 'you'),
+    ('File and diarise', 'claude.ai Drive, Calendar · gmail', 'conn'),
+    ('Log one line', 'HFM LOG.md', 'vault'),
+]
+MOCK_CSS = '''<style>
+.mock{display:inline-block;font-size:.7em;letter-spacing:.08em;padding:2px 6px;border:1px dashed var(--due);color:var(--due);border-radius:4px;margin-left:8px;vertical-align:middle}
+.wft{width:100%;border-collapse:collapse;font-size:.92em}.wft th{text-align:left;color:var(--muted);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line)}
+.wft td{padding:8px;border-bottom:1px solid var(--line)}.wft tr.click{cursor:pointer}.wft tr.click:hover td{background:var(--bg)}
+.wfs{font-size:.8em;padding:1px 7px;border-radius:9px;border:1px solid var(--line)}.wfs.live{color:var(--active);border-color:var(--active)}.wfs.building{color:var(--due);border-color:var(--due)}
+.duechip{font-size:.75em;color:#fff;background:var(--due);border-radius:9px;padding:1px 6px;margin-left:6px}
+.flow{display:flex;align-items:stretch;overflow-x:auto;padding:8px 0}
+.step{min-width:150px;max-width:180px;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--surface)}
+.step b{display:block;font-size:.92em;margin-bottom:4px}.step span{font-size:.8em;color:var(--muted)}
+.step.skill{border-left:4px solid var(--vault)}.step.conn{border-left:4px solid var(--accent)}.step.you{border-left:4px solid var(--due)}.step.vault{border-left:4px solid var(--muted)}
+.arrow{align-self:center;padding:0 6px;color:var(--muted)}
+.legend{font-size:.8em;color:var(--muted);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:middle}
+</style>'''
+
+
+def workflows_mock():
+    rows = ''.join(
+        f'<tr class="click" hx-get="/workflows-mock?w={w["id"]}" hx-target="#main"><td><b>{esc(w["name"])}</b></td><td>{esc(w["lives"])}</td>'
+        f'<td>{esc(w["trigger"])}</td><td>{esc(w["runs"])}</td><td><span class="wfs {w["status"]}">{w["status"]}</span></td>'
+        f'<td>{esc(w["last"])}{"<span class=duechip>due</span>" if w["due"] else ""}</td></tr>' for w in MOCK_WF)
+    return (f'{MOCK_CSS}<div class="anchor"><h1>Workflows <span class="mock">MOCK DATA</span></h1>'
+            f'<p class="meta"><span class="muted">Every file carrying <code>workflow:</code> front matter, wherever it lives. Click a row.</span></p>'
+            f'<section class="box"><table class="wft"><tr><th>Name</th><th>Lives in</th><th>Trigger</th><th>Runs</th><th>Status</th><th>Last run</th></tr>{rows}</table></section></div>')
+
+
+def workflow_mock(wid):
+    w = next((x for x in MOCK_WF if x['id'] == wid), MOCK_WF[2])
+    steps = '<span class="arrow">→</span>'.join(f'<div class="step {k}"><b>{esc(a)}</b><span>{esc(b)}</span></div>' for a, b, k in MOCK_STEPS)
+    runs = ''.join(f'<li>{d} <span class="muted">– {esc(t)}</span></li>' for d, t in [
+        ('19 Sep', 'run one: 14 files, 12 filed, 2 left for you, 3 dates diarised'),
+        ('12 Sep', 'dry run on the runbook draft, nothing filed')])
+    back = '<a class="olink" href="#" hx-get="/workflows-mock" hx-target="#main">← All workflows</a>'
+    return (f'{MOCK_CSS}<div class="anchor">{back}<h1>{esc(w["name"])} <span class="mock">MOCK DATA</span></h1>'
+            f'<p class="meta"><span class="wfs {w["status"]}">{w["status"]}</span> <span class="muted">{esc(w["trigger"])} · lives in {esc(w["lives"])} · '
+            f'last run {esc(w["last"])}</span>{"<span class=duechip>due</span>" if w["due"] else ""}</p>'
+            f'<section class="box"><h3>How it runs</h3><div class="flow">{steps}</div>'
+            f'<p class="legend"><i style="background:var(--accent)"></i>connection<i style="background:var(--vault)"></i>skill'
+            f'<i style="background:var(--due)"></i>you<i style="background:var(--muted)"></i>vault</p></section>'
+            f'<section class="box"><h3>Run it</h3><p><span class="muted">7 files waiting in the Inbasket.</span></p>'
+            f'<p><button class="act" disabled title="Mock: would run the propose step in headless Claude">Propose filing</button> '
+            f'<span class="muted">then tick, then Apply ticked, as on Task review</span></p></section>'
+            f'<section class="box"><h3>Past runs <span class="muted">(2)</span></h3><ul class="tl">{runs}</ul></section>'
+            f'<section class="box"><h3>Links</h3><p><span class="olink">Runbook: paperwork-scan SKILL.md ↗</span> · '
+            f'<span class="olink">Node: HFM ↗</span></p></section></div>')
 
 
 HELP_REVIEW = ('The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
@@ -897,13 +1019,20 @@ def variant_e(nodes, roots):
         return out
     nav = ''.join(f'<div class="it anc-it open" data-k="{esc(a.rel)}"><div class="anc" hx-get="/view?p={qp(a.rel)}" hx-target="#main">'
                   f'<span class="tw">▸</span>{esc(a.name)}</div><ul class="sub">{tree(a.children)}</ul></div>' for a in anchors)
-    tools = ('<div class="navtools"><button data-all="1">Expand all</button><button data-all="0">Collapse all</button>'
-             '<button id="donebtn">Show done</button></div>'
-             '<div class="navtools"><button hx-get="/task-review" hx-target="#main">Task review</button>'
-             '<button hx-get="/notion-refresh" hx-swap="none" title="Pull Notion again now (otherwise every 5 minutes)">Refresh Notion</button></div>')
+    # two layers (2026-10-03): pages and actions on top, then the controls for the tree right above the tree
+    tools = ('<div class="nh">Pages</div>'
+             '<div class="navpages"><a href="#" hx-get="/task-review" hx-target="#main">Task review</a>'
+             '<a href="#" hx-get="/workflows-mock" hx-target="#main">Workflows</a></div>'
+             '<div class="navtools"><button hx-get="/notion-refresh" hx-swap="none" '
+             'title="Pull Notion again now (otherwise every 5 minutes)">↻ Refresh Notion</button></div>'
+             '<hr class="navsep"><div class="nh">Nodes</div>'
+             '<div class="navtools"><button data-all="1">Expand all</button><button data-all="0">Collapse all</button>'
+             '<button id="donebtn">Show done</button></div>')
     js = '''<script>(function(){
 const KEY='cockpit.open';let open;try{open=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){open=null}
 const items=()=>document.querySelectorAll('nav .it');
+document.addEventListener('click',e=>{const pg=e.target.closest('.navpages a'),nd=e.target.closest('nav .nv, nav .anc');
+if(pg||nd)document.querySelectorAll('.navpages a').forEach(a=>a.classList.toggle('on',a===pg))});
 function save(){try{localStorage.setItem(KEY,JSON.stringify([...items()].filter(i=>i.classList.contains('open')).map(i=>i.dataset.k)))}catch(e){}}
 if(open)items().forEach(i=>i.classList.toggle('open',open.includes(i.dataset.k)));
 document.addEventListener('click',e=>{const t=e.target.closest('nav .tw');if(t&&!t.classList.contains('blank')){e.stopPropagation();e.preventDefault();
@@ -922,8 +1051,8 @@ VARIANTS = {'E': ('Nav + anchor', variant_e), 'D': ('Headline', variant_d), 'A':
 CSS = '''
 :root{--bg:#f6f5f2;--surface:#fff;--ink:#1d1d1b;--muted:#77756f;--line:#e2dfd8;--accent:#2f5d8a;
 --blocked:#c2412d;--due:#b7791f;--active:#2f7d4f;--waiting:#6b7280;--done:#a8a29e;--backlog:#8b8b8b;--next:#2f5d8a;
---vault:#5b4b8a;--notion:#1d1d1b;--repo:#b45309}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--surface:#1f1f1d;--ink:#ecebe7;--muted:#9a978f;--line:#33322f;--accent:#7fa8d1;--notion:#d6d3cc}}
+--vault:#5b4b8a;--notion:#1d1d1b;--repo:#b45309;--t-area:#78716c;--t-project:#2f5d8a;--t-workflow:#0f766e}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--surface:#1f1f1d;--ink:#ecebe7;--muted:#9a978f;--line:#33322f;--accent:#7fa8d1;--notion:#d6d3cc;--t-area:#a8a29e;--t-project:#7fa8d1;--t-workflow:#5eead4}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,sans-serif}
 header{display:flex;align-items:baseline;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--surface)}
 header h1{font-size:16px;margin:0;letter-spacing:.02em}header .muted{font-size:12px}
@@ -979,7 +1108,9 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .hcol ul{list-style:none;margin:0;padding:0}.hcol li{display:flex;align-items:center;gap:10px;padding:9px 0}
 .hn{flex:1;font-size:15px}.ago{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .kp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 0;width:68px;text-align:center;border-radius:10px;border:1px solid var(--line);color:var(--muted)}
-.kp-project{border-color:var(--ink);color:var(--ink)}.kp-workflow{border-color:var(--accent);color:var(--accent)}
+/* type colours, 2026-10-03: area warm stone, project deep blue, workflow teal; outline, text and a faint tint */
+.kp-area{--t:var(--t-area)}.kp-project{--t:var(--t-project)}.kp-workflow{--t:var(--t-workflow)}
+.kp-area,.kp-project,.kp-workflow{border-color:var(--t);color:var(--t);background:color-mix(in srgb,var(--t) 8%,transparent)}
 /* E */
 .ve{display:grid;grid-template-columns:300px minmax(0,1fr);gap:40px;align-items:start}
 .ve nav{position:sticky;top:16px;max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}
@@ -993,11 +1124,21 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .tw:hover{color:var(--ink)}.it.open>.nv>.tw,.it.open>.anc>.tw{transform:rotate(90deg)}.tw.blank{cursor:default}
 .anc{display:flex;align-items:center;gap:6px}
 .navtools{display:flex;gap:6px;margin:0 0 12px 8px}
+.nh{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 6px 8px}
+.navpages{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px 8px}
+.navpages a{color:var(--ink);text-decoration:none;font-size:12px;padding:3px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.navpages a:hover{border-color:var(--accent);color:var(--accent)}
+.navpages a.on{background:var(--accent);border-color:var(--accent);color:var(--surface)}.navsep{border:0;border-top:1px solid var(--line);margin:12px 0 14px 8px}
 .navtools button{font:inherit;font-size:11px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:4px;padding:2px 8px;cursor:pointer}
 .navtools button:hover{color:var(--ink);border-color:var(--muted)}
 .nv .kp{width:20px;padding:1px 0;font-size:9px}.nv .hn{font-size:14px}.nv .ago{font-size:12px}
 .htmx-request{opacity:.6}
-.anchor{max-width:720px}.anchor h1{font-size:24px;font-weight:600;margin:4px 0 6px}
+.lbl{font-size:.75em;padding:1px 8px;border:1px dashed var(--muted);border-radius:9px;color:var(--muted);margin:0 6px}
+.wfrow b{font-size:15px}.wfkv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;margin:10px 0 0;font-size:14px}
+.wfkv dt{color:var(--muted)}.wfkv dd{margin:0;display:flex;flex-wrap:wrap;gap:6px}
+.wfs{font-size:.8em;padding:1px 7px;border-radius:9px;border:1px solid var(--line)}.wfs.live{color:var(--active);border-color:var(--active)}.wfs.building{color:var(--due);border-color:var(--due)}
+.uchip{font-size:12px;padding:1px 8px;border-radius:9px;border:1px solid var(--line)}.u-skill{border-color:var(--vault);color:var(--vault)}.u-conn{border-color:var(--accent);color:var(--accent)}
+.anchor{max-width:50vw}.anchor h1{font-size:24px;font-weight:600;margin:4px 0 6px}
 .anchor h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:28px 0 8px}
 .quiet{color:var(--muted)}
 .att{list-style:none;margin:0;padding:0}
@@ -1006,7 +1147,7 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .why{flex:none;width:118px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding-top:2px}
 .why-blocked{color:var(--blocked)}.why-due{color:var(--due)}
 .an{font-size:15px}.acr{font-size:12px;color:var(--muted);margin-left:10px}.aline{font-size:13px;color:var(--muted);margin-top:2px}
-#main .detail{max-width:720px}
+#main .detail{max-width:50vw}
 .box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 22px 16px;margin:24px 0 32px}
 .box h3{margin-top:16px}
 .ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
@@ -1041,7 +1182,17 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .tl li{flex-wrap:wrap}.tt.has-det{cursor:pointer}.more{color:var(--muted);margin-left:4px}.li-open .more{display:none}
 .det{display:none;flex-basis:100%;font-size:13px;color:var(--muted);padding:6px 0 2px 15px;line-height:1.5}
 .tl li.open .det{display:block}.tl li.open .more{display:none}
-.tl li.pair{display:block;padding:4px 12px}.tl li.pair::before{display:none}
+.tl.nodes li::before{display:none}
+/* Child state look-through (2026-10-03) */
+.tl.nodes li{align-items:center}.tl.nodes .kp{flex:none}
+.tl.nodes .tw{flex:none;width:12px;color:var(--muted);font-size:12px;text-align:center;display:inline-block;transition:transform .15s}
+.tl.nodes li.ar{display:block}
+.tl.nodes li.ar>details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tl.nodes li.ar>details>summary::-webkit-details-marker{display:none}.tl.nodes li.ar>details>summary::marker{content:''}
+.tl.nodes li.ar>details[open]>summary .tw{transform:rotate(90deg)}
+.tl.nodes.sub{margin:8px 0 0 22px}.tl.nodes.sub li{background:var(--surface)}
+.rus{margin-left:auto;display:flex;gap:6px;align-items:center}.ru{font-size:11px;color:var(--muted);white-space:nowrap}
+.ru-blocked{color:var(--blocked);font-weight:600}.ru-due{color:var(--due);font-weight:600}.ru-active{color:var(--active)}.tl li.pair{display:block;padding:4px 12px}.tl li.pair::before{display:none}
 .pr{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;padding:4px 0}
 .pr::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
 .pr.open .det{display:block}.pr.open .more{display:none}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
@@ -1100,9 +1251,17 @@ class H(BaseHTTPRequestHandler):
         elif u.path == '/notion-refresh':  # htmx reloads the page on HX-Refresh
             notion_state(force=True)
             self.send_response(200); self.send_header('HX-Refresh', 'true'); self.send_header('Content-Length', '0'); self.end_headers(); return
+        elif u.path == '/open-runbook':  # a node's own STATE runbook only
+            nodes, _ = load()
+            n = next((x for x in nodes if x.rel == q.get('p', [''])[0]), None)
+            rb = runbook_path(n) if n else ''
+            if rb: subprocess.Popen([VSCODE, rb], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            self.send_response(204 if rb else 404); self.end_headers(); return
         elif u.path == '/edit-skill':  # Obsidian can't open .claude/ (dot-folder), so VS Code; this one file only
             subprocess.Popen([VSCODE, SKILL_FILE], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             self.send_response(204); self.end_headers(); return
+        elif u.path == '/workflows-mock':
+            body = workflow_mock(q['w'][0]) if q.get('w') else workflows_mock()
         elif u.path == '/task-review':
             body = task_review_page(force=q.get('force') == ['1'])
         elif u.path == '/view':
