@@ -5,6 +5,7 @@ What the front-page prototype has settled, and what it hasn't. Tagged Decided (A
 ### Decided, 2026-10-03
 
 - **Claude skills from the page run headless Claude Code** (`claude -p`, subscription, not the API). Claude proposes, Alex ticks, plain Python writes, so "nothing before the yes" is enforced by the page, not trusted to the model. Task review's Suggest actions is the first; the hover names the account. Every suggested row is validated against the pull, invented ids are dropped. Pattern for the "Check this node" row.
+- **Areas v1.** Every node says `type:` in STATE front matter, and every Area now has a STATE (vault root CLAUDE.md, 2026-10-03). An Area links to its Notion Area with `notion:` in that STATE, like any node. Its page shows State (its own level, plus its Notion Area tasks) and Child state (the nodes below, rolled up on every read, never stored). Nine linked: NGT-Sales, NGT-Operations, NGT-Clients, Health, Home, Family, Finances, Fun, Friends. Self development and Work & Career left unlinked, Alex.
 - **Task review sections fold**, closed by default; a section with suggestions opens. Dead parent ignores Backlog tasks under an On hold project.
 
 - **Notion live, one pull.** Tasks, Projects and Areas in one go, CRM later, split by node locally. Cached a few minutes, Refresh forces it, last good pull kept and shown flagged if Notion fails. A full pull took 2s; cost grows with task count, not node count. Replaces per-node `notion.json` snapshots for the cockpit. Alex chose this over snapshots after asking why not live.

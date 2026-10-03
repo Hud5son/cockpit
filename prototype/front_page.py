@@ -144,7 +144,7 @@ class Node:
         self.vault_tasks = parse_state_body(body, 'vault')
         self.blocked_on = next((t['title'] for t in self.vault_tasks if t['status'] == 'blocked'), '')
         # sources
-        notion = fm.get('notion', '')
+        notion = fm.get('notion', '')  # every node, Areas included, keeps it in STATE (2026-10-03)
         self.notion_linked = notion.startswith('http')
         self.notion = notion_for(notion) if self.notion_linked else None
         repo = fm.get('repo', '')
@@ -161,13 +161,15 @@ class Node:
 
     @property
     def kind(self):
+        t = self.fm.get('type', '')  # written in STATE front matter since 2026-10-03; the guess below is the fallback
+        if t in ('area', 'project', 'workflow'): return t
         if self.cadence: return 'workflow'
         if self.children or not self.state_txt: return 'area'
         return 'project'
 
     @property
-    def own_work(self):  # an Area carrying its own STATE, decided 2026-10-02
-        return self.kind == 'area' and bool(self.state_txt)
+    def own_work(self):  # an Area carrying its own STATE (2026-10-02) or linked to a Notion Area's tasks (Areas v1, 2026-10-03)
+        return self.kind == 'area' and (bool(self.state_txt) or self.notion_linked)
 
     @property
     def due(self):
@@ -178,7 +180,7 @@ class Node:
 
     @property
     def shown_status(self):
-        if self.kind == 'area' and not self.own_work: return derived(self)
+        if self.kind == 'area' and not self.state_txt: return derived(self)  # no STATE, no written status
         return 'due' if self.due and self.status == 'active' else (self.status or 'waiting')
 
     @property
@@ -555,7 +557,8 @@ def state_box(n):
     if back:
         out += (f'<details class="bl"><summary><h4>Backlog <span class="muted">{len(back)}</span></h4></summary>'
                 f'{ul(back)}</details>')
-    if not out: out = '<p class="quiet">Nothing recorded.</p>'
+    if not out:  # worked out from every source, never written (2026-10-03)
+        out = '<p class="quiet">No work at this level, monitoring only.</p>' if n.kind == 'area' else '<p class="quiet">Nothing recorded.</p>'
     status = n.shown_status
     strays = sum(1 for t in ts if n.is_stray(t))
     sc = f'<span class="strays" title="Tasks outside this node\'s home ({n.task_home.title()}). Tidied at session close.">{strays} out of place</span>' if strays else ''
@@ -724,7 +727,18 @@ def node_page(n):
     return (f'<div class="anchor"><h1>{esc(n.name)}</h1>'
             f'<p class="meta"><span class="kp kp-{n.kind}">{n.kind}</span>{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
-            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{context_box(n)}</div>')
+            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{child_box(n)}{context_box(n)}</div>')
+
+
+def child_box(n):
+    """Child state: what the nodes below are doing, rolled up on every read, never stored (2026-10-03)."""
+    if not n.children: return ''
+    rows = ''
+    for c in sorted(n.children, key=lambda c: touched(c), reverse=True):
+        nxt = f' <span class="muted">– {esc(c.next[:120])}</span>' if c.next else ''
+        rows += (f'<li><a href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
+                 f'<span class="kp kp-{c.kind}">{c.kind}</span> <span class="st st-{c.shown_status}">{c.shown_status}</span>{nxt}</li>')
+    return f'<section class="box"><h3>Child state <span class="muted">{len(n.children)}</span></h3><ul class="tl">{rows}</ul></section>'
 
 
 HELP_REVIEW = ('The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
