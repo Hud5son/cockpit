@@ -4,6 +4,9 @@ What the front-page prototype has settled, and what it hasn't. Tagged Decided (A
 
 ### Decided, 2026-10-03
 
+- **Claude skills from the page run headless Claude Code** (`claude -p`, subscription, not the API). Claude proposes, Alex ticks, plain Python writes, so "nothing before the yes" is enforced by the page, not trusted to the model. Task review's Suggest actions is the first; the hover names the account. Every suggested row is validated against the pull, invented ids are dropped. Pattern for the "Check this node" row.
+- **Task review sections fold**, closed by default; a section with suggestions opens. Dead parent ignores Backlog tasks under an On hold project.
+
 - **Notion live, one pull.** Tasks, Projects and Areas in one go, CRM later, split by node locally. Cached a few minutes, Refresh forces it, last good pull kept and shown flagged if Notion fails. A full pull took 2s; cost grows with task count, not node count. Replaces per-node `notion.json` snapshots for the cockpit. Alex chose this over snapshots after asking why not live.
 
 ### Decided, 2026-10-02

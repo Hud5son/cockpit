@@ -6,7 +6,12 @@ updated: 2026-10-03
 
 **Next:** nothing.
 
-**Waiting:** nothing.
+**Waiting:**
+
+1. Claude Code CLI login – Alex
+   - headless runs fail "OAuth session expired"; Suggest actions untested end to end until then
+2. First real Apply ticked – Alex
+   - the Notion write path has not run yet; watch the first one
 
 **Backlog:**
 
@@ -36,5 +41,15 @@ updated: 2026-10-03
     - every script that exists (vault `Tools/`, `~/dev` repos, skills), its language and what calls it
     - every MCP server and connector: which account or workspace it is bound to, which scripts and skills use it
     - serves the same VOS objective as row 9
+12. Task review: editable date on "Reset due" rows
+    - prefilled with Claude's guess, Alex sets it before Apply
+13. Task review Apply: full error text and a log line
+    - errors cut at 80 chars hid the cause of the 2026-10-03 failure (likely a task already trashed, cache stale)
+    - log the skill's step 5 line to `Vault_OS/_node/LOG.md`; the 13 applied on 2026-10-03 are unlogged
+14. Task review skill: How to propose
+    - suggestions were not on point, 2026-10-03. Rules per section in SKILL.md from Alex's real misses; page prompt keeps only the reply format
+    - note in the skill that the page mirrors steps 1, 3 and 5 in code
+15. Circle-and-tick on task rows
+    - Notion's checkmark icon: empty circle open, ticked done; doubles as a status cue
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.

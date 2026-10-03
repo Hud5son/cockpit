@@ -26,7 +26,7 @@ esc = html.escape
 # Notion live, decided 2026-10-03: one pull of Tasks, Projects and Areas, cached, Refresh forces it,
 # last good pull kept and flagged stale if Notion fails. Pull and checks live in the vault's Tools/.
 sys.path.insert(0, os.path.join(VAULT, 'Tools'))
-from notion_live import pull as notion_pull
+from notion_live import pull as notion_pull, apply_action as notion_apply
 from task_review import review as task_review, SECTIONS as REVIEW_SECTIONS
 import threading, time
 NOTION_TTL = 300
@@ -232,8 +232,10 @@ def git_info(repo):
     path = os.path.expanduser(repo)
     if not os.path.isdir(os.path.join(path, '.git')): return {'exists': os.path.isdir(path), 'last': '', 'dirty': 0}
     try:
-        last = subprocess.run(['git', '-C', path, 'log', '-1', '--format=%cs'], capture_output=True, text=True).stdout.strip()
-        dirty = len(subprocess.run(['git', '-C', path, 'status', '--porcelain'], capture_output=True, text=True).stdout.splitlines())
+        # no console window per call: under pythonw each git would otherwise flash one
+        quiet = dict(capture_output=True, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        last = subprocess.run(['git', '-C', path, 'log', '-1', '--format=%cs'], **quiet).stdout.strip()
+        dirty = len(subprocess.run(['git', '-C', path, 'status', '--porcelain'], **quiet).stdout.splitlines())
         return {'exists': True, 'last': last, 'dirty': dirty}
     except OSError: return {'exists': True, 'last': '', 'dirty': 0}
 
@@ -725,35 +727,140 @@ def node_page(n):
             f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{context_box(n)}</div>')
 
 
-HELP_REVIEW = ('Read-only. The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
-               'To act on a finding, ask Claude for a task review: it proposes an action per row and applies on your yes. '
-               'Rerun pulls Notion again, use it after changing things there.')
+HELP_REVIEW = ('The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
+               'Suggest actions runs the skill\'s Propose step in headless Claude Code; nothing changes in Notion. '
+               'Untick what you disagree with, then Apply ticked writes the rest to Notion, in plain code, no Claude. '
+               'Trash is recoverable from Notion\'s trash for 30 days. Rerun pulls Notion again and clears suggestions.')
+
+# Suggest actions: headless Claude Code on the subscription, not the API. Decided 2026-10-03.
+CLAUDE_CMD = os.path.join(os.environ.get('APPDATA', ''), 'npm', 'claude.cmd')
+try: CLAUDE_ACCOUNT = json.load(open(os.path.expanduser('~/.claude.json'), encoding='utf-8'))['oauthAccount']['emailAddress']
+except Exception: CLAUDE_ACCOUNT = 'your Claude account'
+SKILL_FILE = os.path.join(VAULT, '.claude', 'skills', 'task-review', 'SKILL.md')
+VSCODE = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'Microsoft VS Code', 'Code.exe')
+ACTIONS = {'trash', 'status', 'project', 'area', 'due', 'none'}
+SET_STATUS = {'Backlog', 'Next', 'Waiting', 'Someday', 'Cancelled'}
+_suggest = {'pulled': '', 'rows': {}, 'error': ''}
+_suggest_lock = threading.Lock()
+
+SUGGEST_PROMPT = '''You are running the Propose step of the task-review skill for the cockpit, non-interactively.
+Read .claude/skills/task-review/SKILL.md for its guards and default actions. The hunt has already run: its findings are
+in the JSON below, with the open projects and the areas you may move a task to. Today is {today}.
+
+For every finding propose exactly one action. Reply with ONLY a JSON array, no prose, no code fence. Each item:
+{{"id": "<finding id>", "action": "trash" | "status" | "project" | "area" | "due" | "none",
+ "value": <Status name (Backlog, Next, Waiting, Someday, Cancelled) | project id | area id | "YYYY-MM-DD" | null>,
+ "label": "<the action in a few words, e.g. Move to Someday>", "why": "<under 12 words>"}}
+Use only ids from the lists given. Never invent a project or area; if none fits, propose trash or none and say why.
+
+{payload}'''
 
 
-def task_review_page(force=False):
+def run_suggest(data, review):
+    """Ask headless Claude for one action per finding. Validates every row; anything malformed is dropped."""
+    found = {f['id']: f for k, _ in REVIEW_SECTIONS for f in review['findings'].get(k, [])}
+    projects = {i: p for i, p in data['projects'].items() if p['status'] not in ('Done', 'Cancelled')}
+    payload = json.dumps({
+        'findings': [{'id': i, 'title': f['title'], 'status': f['status'], 'project': f['project_name'], 'due': f['due'][:10], 'why': f['why']}
+                     for i, f in found.items()],
+        'projects': [{'id': i, 'name': p['name'], 'status': p['status']} for i, p in projects.items()],
+        'areas': [{'id': i, 'name': a['name']} for i, a in data['areas'].items()]})
+    prompt = SUGGEST_PROMPT.format(today=date.today().isoformat(), payload=payload)
+    # Strip any Claude Code session settings inherited from whoever started the server (e.g. a desktop-app
+    # session's ANTHROPIC_BASE_URL and host-auth flags), so the headless run uses Alex's own CLI login.
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('CLAUDE', 'ANTHROPIC'))}
+    p = subprocess.run([CLAUDE_CMD, '-p', '--output-format', 'json', '--allowedTools', 'Read'], input=prompt, cwd=VAULT, env=env,
+                       capture_output=True, text=True, encoding='utf-8', timeout=300,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    try: outer = json.loads(p.stdout)
+    except ValueError: raise RuntimeError(f'Claude Code gave no result: {(p.stderr or p.stdout)[:200]}')
+    if outer.get('is_error') or outer.get('subtype') != 'success': raise RuntimeError(f'Claude Code: {str(outer.get("result"))[:200]}')
+    text = outer.get('result', '')
+    rows = json.loads(text[text.find('['):text.rfind(']') + 1])
+    ok = {}
+    for s in rows:
+        a, v, i = s.get('action'), s.get('value'), s.get('id')
+        if i not in found or a not in ACTIONS: continue
+        if (a == 'status' and v not in SET_STATUS) or (a == 'project' and v not in projects) or (a == 'area' and v not in data['areas']) \
+                or (a == 'due' and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(v))): continue
+        ok[i] = {'action': a, 'value': v, 'label': str(s.get('label', a))[:60], 'why': str(s.get('why', ''))[:120]}
+    return ok
+
+
+def suggest(st):
+    if not _suggest_lock.acquire(blocking=False): return  # one run at a time; a double click just waits for the first
+    try:
+        r = task_review(st['data'])
+        _suggest.update(pulled=st['data']['pulled'], rows=run_suggest(st['data'], r), error='')
+    except Exception as e:
+        _suggest.update(pulled=st['data']['pulled'], rows={}, error=str(e)[:300])
+    finally:
+        _suggest_lock.release()
+
+
+def apply_ticked(ids):
+    """Write the ticked suggestions. Re-checks each task is still open in the current pull first."""
+    st = notion_state()
+    tasks = {t['id']: t for t in (st['data'] or {}).get('tasks', [])}
+    done, failed = 0, []
+    for i in ids:
+        s, t = _suggest['rows'].get(i), tasks.get(i)
+        if not s or s['action'] == 'none' or not t or t['status'] in ('Done', 'Cancelled'): continue
+        try: notion_apply(i, s['action'], s['value']); done += 1
+        except Exception as e: failed.append(f'{t["title"]}: {str(e)[:80]}')
+    _suggest.update(pulled='', rows={}, error='')
+    notion_state(force=True)
+    return f'Applied {done}.' + (f' Failed {len(failed)}: ' + '; '.join(failed) if failed else '')
+
+
+def task_review_page(force=False, msg=''):
+    if force: _suggest.update(pulled='', rows={}, error='')  # Rerun starts clean; the 5-minute cache refresh doesn't
     st = notion_state(force)
     rerun = '<a class="olink" href="#" hx-get="/task-review?force=1" hx-target="#main">Rerun ↻</a>'
     if not st['data']:
         return f'<div class="anchor"><h1>Task review</h1><p class="quiet">Notion unavailable: {esc(st["error"])}</p>{rerun}</div>'
     r = task_review(st['data'])
     c = r['counts']
+    sug = _suggest['rows']
     stale = f' · <span class="h-blocked">stale, last pull failed: {esc(st["error"])}</span>' if st['error'] else ''
     btn, panel = help_q(HELP_REVIEW)
     def li(f):
         bits = [f['project_name'] if f['project_name'] != '-' else '', f['status'] or 'no status', f'due {f["due"][:10]}' if f.get('due') else '']
+        s = sug.get(f['id'])
+        prop = ''
+        if s:
+            tick = '' if s['action'] == 'none' else f'<input type="checkbox" name="id" value="{esc(f["id"])}" checked> '
+            prop = f'<label class="sugg">{tick}<b>{esc(s["label"])}</b> <span class="muted">– {esc(s["why"])}</span></label>'
         return (f'<li><a href="{esc(f["url"])}" target="_blank" rel="noopener">{esc(f["title"] or "(untitled)")}</a> '
-                f'<span class="muted">{esc(" · ".join(b for b in bits if b))} – {esc(f["why"])}</span></li>')
+                f'<span class="muted">{esc(" · ".join(b for b in bits if b))} – {esc(f["why"])}</span>{prop}</li>')
+    def fold(label, rows, open_=False):  # closed by default, count in the heading; an empty section has nothing to open
+        head = f'<h3>{label} <span class="muted">{len(rows)}</span></h3>'
+        if not rows: return f'<section class="box">{head}</section>'
+        return (f'<section class="box"><details class="bl"{" open" if open_ else ""}><summary>{head}</summary>'
+                f'<ul class="tl">{"".join(rows)}</ul></details></section>')
     out = ''
     for key, label in REVIEW_SECTIONS:
-        rows = [f'<li>{esc(d)}</li>' for d in (r['drift'] if key == 'drift' else [])] + [li(f) for f in r['findings'].get(key, [])]
-        body = f'<ul class="tl">{"".join(rows)}</ul>' if rows else '<p class="quiet">Nothing.</p>'
-        out += f'<section class="box"><h3>{label} <span class="muted">{len(rows)}</span></h3>{body}</section>'
-    ov = ''.join(f'<li>{esc(o)}</li>' for o in r['overload'])
-    out += (f'<section class="box"><h3>Overload <span class="muted">{len(r["overload"])}</span></h3>'
-            f'{f"<ul class=tl>{ov}</ul>" if ov else "<p class=quiet>Nothing.</p>"}</section>')
+        fs = r['findings'].get(key, [])
+        rows = [f'<li>{esc(d)}</li>' for d in (r['drift'] if key == 'drift' else [])] + [li(f) for f in fs]
+        out += fold(label, rows, open_=any(f['id'] in sug for f in fs))
+    out += fold('Overload', [f'<li>{esc(o)}</li>' for o in r['overload']])
+    tip = f'Runs headless Claude Code on {CLAUDE_ACCOUNT} (your subscription, not the API). Read-only, about a minute.'
+    actions = (f'<button class="act" hx-post="/task-review/suggest" hx-target="#main" hx-disabled-elt="this" title="{esc(tip)}">'
+               f'Suggest actions</button><span class="htmx-indicator muted"> Claude is thinking, about a minute…</span>')
+    if sug:
+        n = sum(1 for s in sug.values() if s['action'] != 'none')
+        actions += (f' <button class="act" hx-post="/task-review/apply" hx-include="#review" hx-target="#main" '
+                    f'hx-confirm="Write the ticked changes to Notion?" title="Writes ticked rows to Notion in plain code, no Claude">'
+                    f'Apply ticked</button> <span class="muted">{n} suggested</span>')
+    note = ''
+    if _suggest['error']: note = f'<p class="h-blocked">Suggest failed: {esc(_suggest["error"])}</p>'
+    if msg: note += f'<p class="muted">{esc(msg)}</p>'
     return (f'<div class="anchor"><div class="hwrap"><h1>Task review {btn}</h1>{panel}</div>'
             f'<p class="meta"><span class="muted">{c["open"]} open of {c["total"]} tasks · {c["projects"]} projects · '
-            f'pulled {st["data"]["pulled"][11:16]}{stale}</span> {rerun}</p>{out}</div>')
+            f'pulled {st["data"]["pulled"][11:16]}{stale}</span> {rerun} '
+            f'<a class="olink" href="#" hx-get="/edit-skill" hx-swap="none" title="Opens the task-review skill in VS Code. '
+            f'Suggest actions reads it on every run, so an edit shows on the next Suggest.">Edit skill ↗</a></p><p>{actions}</p>{note}'
+            f'<form id="review" onsubmit="return false">{out}</form></div>')
 
 
 def view(n):
@@ -889,9 +996,12 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 22px 16px;margin:24px 0 32px}
 .box h3{margin-top:16px}
 .ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
-.ff summary h4,.bl summary h4{position:relative}
-.ff summary h4::before,.bl summary h4::before{content:'▸';position:absolute;left:-13px}
-.ff[open] summary h4::before,.bl[open] summary h4::before{content:'▾'}
+.sugg{display:block;margin-top:4px;font-size:.92em;cursor:pointer}.sugg input{vertical-align:middle;margin:0 4px 0 0}
+.act{font:inherit;font-size:.85em;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);cursor:pointer}
+.act[disabled]{opacity:.5;cursor:wait}
+.ff summary h4,.bl summary h4,.bl summary h3{position:relative}
+.ff summary h4::before,.bl summary h4::before,.bl summary h3::before{content:'▸';position:absolute;left:-13px}
+.ff[open] summary h4::before,.bl[open] summary h4::before,.bl[open] summary h3::before{content:'▾'}
 .ff h4 .muted{font-weight:400;text-transform:none;letter-spacing:0}
 .gh{display:flex;justify-content:space-between;align-items:baseline}
 .ch{display:flex;justify-content:space-between;align-items:baseline}
@@ -976,6 +1086,9 @@ class H(BaseHTTPRequestHandler):
         elif u.path == '/notion-refresh':  # htmx reloads the page on HX-Refresh
             notion_state(force=True)
             self.send_response(200); self.send_header('HX-Refresh', 'true'); self.send_header('Content-Length', '0'); self.end_headers(); return
+        elif u.path == '/edit-skill':  # Obsidian can't open .claude/ (dot-folder), so VS Code; this one file only
+            subprocess.Popen([VSCODE, SKILL_FILE], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            self.send_response(204); self.end_headers(); return
         elif u.path == '/task-review':
             body = task_review_page(force=q.get('force') == ['1'])
         elif u.path == '/view':
@@ -989,6 +1102,20 @@ class H(BaseHTTPRequestHandler):
         elif u.path == '/':
             v = q.get('variant', ['E'])[0].upper()
             body = page(v if v in VARIANTS else 'E')
+        else:
+            self.send_response(404); self.end_headers(); return
+        self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        form = parse_qs(self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode('utf-8'))
+        if u.path == '/task-review/suggest':
+            st = notion_state()
+            if st['data']: suggest(st)
+            body = task_review_page()
+        elif u.path == '/task-review/apply':
+            body = task_review_page(msg=apply_ticked(form.get('id', [])))
         else:
             self.send_response(404); self.end_headers(); return
         self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
