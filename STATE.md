@@ -49,9 +49,7 @@ updated: 2026-10-03
 14. Task review skill: How to propose
     - suggestions were not on point, 2026-10-03. Rules per section in SKILL.md from Alex's real misses; page prompt keeps only the reply format
     - note in the skill that the page mirrors steps 1, 3 and 5 in code
-15. Circle-and-tick on task rows
-    - Notion's checkmark icon: empty circle open, ticked done; doubles as a status cue
-16. Workflows page, from the mock
-    - list plus detail as mocked 2026-10-03 (`/workflows-mock`); real data waits on the `workflow:` front matter in runbooks (VOS backlog)
+15. Circle-and-tick as a status cue
+    - decoration added 2026-10-03, the same icon on every task row; next is meaning: empty circle open, ticked done
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.

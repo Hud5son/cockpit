@@ -22,6 +22,8 @@ CADENCE_DAYS = {'daily': 1, 'weekly': 7, 'monthly': 31, 'quarterly': 92}
 NOTION_MAP = {'backlog': 'backlog', 'someday': 'backlog', 'not started': 'backlog', 'next': 'next', 'active': 'next', 'in progress': 'next',
               'waiting': 'waiting', 'blocked': 'blocked', 'done': 'done', 'cancelled': 'done'}
 esc = html.escape
+NOTION_PROJECT_MAP = {'on hold': 'waiting', 'not started': 'waiting', 'in progress': 'active', 'ongoing': 'active',
+                      'done': 'done', 'cancelled': 'done'}  # Notion Projects status -> vault status, for comparison only
 
 # Notion live, decided 2026-10-03: one pull of Tasks, Projects and Areas, cached, Refresh forces it,
 # last good pull kept and flagged stale if Notion fails. Pull and checks live in the vault's Tools/.
@@ -191,6 +193,14 @@ class Node:
             out.append({'status': NOTION_MAP.get(t.get('status', '').lower(), 'backlog'), 'title': t.get('task', ''),
                         'source': 'notion', 'url': t.get('url', ''), 'due': (t.get('due') or '')[:10]})
         return out
+
+    @property
+    def notion_conflict(self):
+        """The Notion project's status when it disagrees with the vault STATE's, else ''. Shown, never resolved here:
+        session close settles it (2026-10-03)."""
+        raw = ((self.notion or {}).get('project') or {}).get('status', '')
+        mapped = NOTION_PROJECT_MAP.get(raw.lower())
+        return raw if mapped and self.status and mapped != self.status else ''
 
     @property
     def task_home(self):
@@ -451,6 +461,8 @@ def attention(anchor):
             items.append((0, 'blocked', n, n.blocked_on or n.next))
         elif n.due:
             items.append((1, 'due', n, f'{n.cadence}, last run {ago(n.updated)} ago'))
+        elif n.notion_conflict:
+            items.append((1, 'disagrees', n, f'vault says {n.status}, Notion says {n.notion_conflict}'))
         elif days_since(touched(n)) > STALE_DAYS:
             items.append((2, f'untouched {ago(touched(n))}', n, n.next))
     return sorted(items, key=lambda i: (i[0], -days_since(touched(i[2]))))
@@ -462,12 +474,95 @@ def anchor_page(a):
                    f'<div><div class="an">{esc(n.name)}<span class="acr">{esc(crumb(n, a))}</span></div>'
                    f'<div class="aline">{esc(line[:120])}</div></div></li>' for _, k, n, line in items)
     body = f'<ul class="att">{rows}</ul>' if items else '<p class="quiet">All quiet.</p>'
-    return (f'<div class="anchor"><h1>{esc(a.name)}</h1>{f"<p class=aim>{esc(a.aim)}</p>" if a.aim else ""}'
+    return (f'<div class="anchor"><h1>{f"<span class=h1code>{esc(a.code)}</span>" if a.code else ""}{esc(a.name)}</h1>{f"<p class=aim>{esc(a.aim)}</p>" if a.aim else ""}'
             f'<h3>Needs attention</h3>{body}</div>')
 
 
+def node_brief(n):
+    """A few lines of plain text: what the cockpit page says, for a chat with no screen (2026-10-03)."""
+    head = f'{n.code} – {n.name} · {n.kind} · {n.shown_status}' + (f' · {n.cadence}' if n.cadence else '')
+    lines = [head, f'Next: {n.next or "nothing set"}']
+    flags = []
+    if n.notion_conflict: flags.append(f'vault says {n.status}, Notion says {n.notion_conflict}')
+    if n.due: flags.append(f'due: {n.cadence}, last run {ago(n.updated)} ago')
+    strays = sum(1 for t in n.tasks if n.is_stray(t))
+    if strays: flags.append(f'{strays} task{"s" if strays != 1 else ""} out of place, home is {n.task_home.title()}')
+    if n.blocked_on: flags.append(f'blocked: {n.blocked_on}')
+    late = [t for t in n.tasks if t.get('due') and t['status'] != 'done' and t['due'] < date.today().isoformat()]
+    if late: flags.append(f'{len(late)} late: ' + '; '.join(t['title'][:50] for t in late[:2]))
+    for _, k, c, line in (attention(n) if n.kind == 'area' else [])[:4]:
+        flags.append(f'{c.name}: {k}')
+    lines.append('Needs attention: ' + ('nothing' if not flags else ''))
+    lines += [f'  - {f}' for f in flags]
+    nxt = [t for t in n.tasks if t['status'] == 'next'][:3]
+    if nxt: lines.append('Next tasks: ' + '; '.join(t['title'][:60] for t in nxt))
+    if n.kind == 'area' and n.children:
+        ru = re.sub(r'<[^>]+>', ' ', rollup(n)).split()
+        lines.append('Below: ' + (' '.join(ru) or 'nothing yet'))
+    return '\n'.join(lines)
+
+
+def overview_brief():
+    nodes, roots = load()
+    anchors = sorted(roots, key=lambda n: ['NGT', 'PER', 'VOS'].index(n.code) if n.code in ('NGT', 'PER', 'VOS') else 9)
+    today = date.today().isoformat()
+    late = [(t['due'], n, t) for n in nodes for t in n.tasks if t.get('due') and t['status'] != 'done' and t['due'] <= today]
+    lines = [f'Dated today or late: {len(late)}'] + [f'  - {t["title"][:60]} ({n.name})' for _, n, t in sorted(late, key=lambda x: x[0])[:4]]
+    for a in anchors:
+        ru = ' '.join(re.sub(r'<[^>]+>', ' ', rollup(a)).split())
+        att = attention(a)
+        lines.append(f'{a.name}: {ru or "nothing below"}' + (f' · attention: ' + '; '.join(f'{c.name} {k}' for _, k, c, _ in att[:3]) if att else ''))
+    return '\n'.join(lines)
+
+
+def top_page():
+    """The landing page (2026-10-03): where everything stands on one screen. A strip of what is dated today or late
+    plus the task review headline, then one column per anchor. All worked out on read."""
+    nodes, roots = load()
+    anchors = sorted(roots, key=lambda n: ['NGT', 'PER', 'VOS'].index(n.code) if n.code in ('NGT', 'PER', 'VOS') else 9)
+    today = date.today().isoformat()
+    dated = sorted(((t['due'], n, t) for n in nodes for t in n.tasks
+                    if t.get('due') and t['status'] != 'done' and t['due'] <= today), key=lambda x: x[0])
+    def due_li(d, n, t):
+        late = d < today
+        title = esc(t['title'][:110])
+        if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
+        return (f'<li><span class="due{" late" if late else ""}">{"late " if late else ""}{date.fromisoformat(d).strftime("%d %b").lstrip("0")}</span>'
+                f'<span class="tt">{title} <a class="muted" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a></span>'
+                f'<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>')
+    due_box = (f'<ul class="tl">{"".join(due_li(*x) for x in dated[:8])}</ul>' if dated else '<p class="quiet">Nothing dated today or late.</p>')
+    st = notion_state()
+    if st['data']:
+        r = task_review(st['data']); c = r['counts']; f = r['findings']
+        bits = [f'{c["open"]} open'] + [f'{len(f[k])} {lbl.lower()}' for k, lbl in REVIEW_SECTIONS if f.get(k)]
+        review = (f'<p>{esc(" · ".join(bits))}</p><p><a class="olink" href="#" hx-get="/task-review" hx-target="#main">Open Task review →</a></p>')
+    else:
+        review = f'<p class="quiet">Notion unavailable: {esc(st["error"])}</p>'
+    cols = ''
+    for a in anchors:
+        below = [a] + list(descendants(a))
+        att = attention(a)
+        att_html = (''.join(f'<li hx-get="/view?p={qp(n.rel)}" hx-target="#main"><span class="why why-{k.split()[0]}">{esc(k)}</span>'
+                            f'<div><div class="an">{esc(n.name)}</div><div class="aline">{esc(line[:90])}</div></div></li>' for _, k, n, line in att[:6])
+                    if att else '')
+        wf_due = [n for n in below if n.kind == 'workflow' and n.due]
+        nxt = sum(1 for n in below for t in n.tasks if t['source'] == 'notion' and t['status'] == 'next')
+        cols += (f'<section class="topcol"><h2 hx-get="/view?p={qp(a.rel)}" hx-target="#main">{esc(a.name)}</h2>'
+                 f'{f"<p class=aim>{esc(a.aim)}</p>" if a.aim else ""}'
+                 f'<div class="rus">{rollup(a) or "<span class=ru>nothing below yet</span>"}</div>'
+                 f'<h3>Needs attention</h3>{f"<ul class=att>{att_html}</ul>" if att else "<p class=quiet>All quiet.</p>"}'
+                 f'<h3>Workflows due</h3>' + (''.join(f'<p><a href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a> '
+                 f'<span class="muted">{esc(n.cadence)}, last {ago(n.updated)} ago</span></p>' for n in wf_due) or '<p class="quiet">None due.</p>') +
+                 f'<h3>Notion Next</h3><p>{nxt} task{"s" if nxt != 1 else ""} in Next</p></section>')
+    return (f'<div class="top"><h1>Overview</h1>'
+            f'<div class="topstrip"><section class="box"><h3>Dated today or late <span class="muted">({len(dated)})</span></h3>{due_box}</section>'
+            f'<section class="box"><h3>Task review</h3>{review}</section></div>'
+            f'<div class="topcols">{cols}</div>'
+            f'<p class="muted topnote">"Untouched" reads file dates, so the 2026-10-03 renames and type sweep make every node look fresh until early November.</p></div>')
+
+
 def mid_page(n):
-    return f'<div class="anchor"><h1>{esc(n.name)}</h1><p class="quiet">Middle-level area. Page not designed yet.</p></div>'
+    return f'<div class="anchor"><h1>{f"<span class=h1code>{esc(n.code)}</span>" if n.code else ""}{esc(n.name)}</h1><p class="quiet">Middle-level area. Page not designed yet.</p></div>'
 
 
 def section(txt, label):
@@ -526,6 +621,8 @@ def state_box(n):
         if det:
             title = f'<span class="tt has-det" onclick="this.parentNode.classList.toggle(\'open\')" title="Show detail">{title}<span class="more">…</span></span>'
             det = f'<div class="det">{esc(det)}</div>'
+        else:
+            title = f'<span class="tt">{title}</span>'  # always one box, so a long title wraps in place
         due = ''
         if t.get('due'):
             late = ' late' if t['due'] < date.today().isoformat() and t['status'] != 'done' else ''
@@ -563,7 +660,9 @@ def state_box(n):
     strays = sum(1 for t in ts if n.is_stray(t))
     sc = f'<span class="strays" title="Tasks outside this node\'s home ({n.task_home.title()}). Tidied at session close.">{strays} out of place</span>' if strays else ''
     btn, panel = help_q(HELP_STATE)
-    return (f'<section class="box"><div class="hwrap"><h3>State <span class="st st-{status}">{status}</span>{sc}{btn}</h3>{panel}</div>'
+    cf = (f'<span class="conflict" title="The vault STATE says {esc(n.status)}, the Notion project says {esc(n.notion_conflict)}. '
+          f'Settled at session close.">Notion: {esc(n.notion_conflict)}</span>') if n.notion_conflict else ''
+    return (f'<section class="box"><div class="hwrap"><h3>State <span class="st st-{status}">{status}</span>{cf}{sc}{btn}</h3>{panel}</div>'
             f'{out}</section>')
 
 
@@ -724,7 +823,7 @@ def node_page(n):
         return (f'<p class="olead">{esc(lead)}</p>' if lead else '') + (f'<ol class="objs">{lis}</ol>' if lis else '')
     objs = render(obj) if obj else '<p class="quiet">None yet.</p>'
     legacy = f'<h3>Done when <span class="old">old shape</span></h3>{render(old)}' if old else ''
-    return (f'<div class="anchor"><h1>{esc(n.name)}</h1>'
+    return (f'<div class="anchor"><h1>{f"<span class=h1code>{esc(n.code)}</span>" if n.code else ""}{esc(n.name)}</h1>'
             f'<p class="meta"><span class="kp kp-{n.kind}">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
             f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
@@ -734,8 +833,40 @@ def runbook_path(n):
     """A workflow's runbook from STATE `runbook:`, vault-relative or absolute; only an existing .md counts."""
     rb = str(n.fm.get('runbook', '') or '')
     if not rb: return ''
-    path = os.path.normpath(rb if os.path.isabs(os.path.expanduser(rb)) else os.path.join(VAULT, rb))
+    rb = os.path.expanduser(rb)
+    path = os.path.normpath(rb if os.path.isabs(rb) else os.path.join(VAULT, rb))
     return path if path.endswith('.md') and os.path.isfile(path) else ''
+
+
+def run_prompt(n):
+    """What to say to Claude Code to run this workflow: its runbook skill, named for this node."""
+    us = n.fm.get('uses') if isinstance(n.fm.get('uses'), list) else []
+    skill = next((str(u)[6:] for u in us if str(u).startswith('skill ')), '')
+    return f'Run the {skill} skill for {n.name}.' if skill else f'Run the {n.name} workflow, following its runbook.'
+
+
+def run_modal(n):
+    """For now Run hands off to Claude Code; running in place from the cockpit needs thinking about (2026-10-03)."""
+    prompt = run_prompt(n)
+    return (f'<div class="detail"><h2 style="margin:0 0 6px">Run {esc(n.name)}</h2>'
+            f'<p class="muted">Runs in Claude Code, from the vault, using its runbook. Running it in place from the cockpit comes later.</p>'
+            f'<p><b>Say:</b></p><pre class="runp" id="runp">{esc(prompt)}</pre>'
+            f'<p><button class="act" hx-post="/wf/open?to=desktop&p={qp(n.rel)}" hx-swap="none" onclick="navigator.clipboard.writeText(document.getElementById(\'runp\').innerText);this.innerText=\'Copied, paste it into a Code session in the vault\'" '
+            f'title="Copies the prompt and brings the Claude desktop app forward">Open in desktop app</button> '
+            f'<button class="act" hx-post="/wf/open?to=terminal&p={qp(n.rel)}" hx-swap="none" '
+            f'title="Terminal Claude Code in the vault, prompt filled in, press Enter to run">Open in terminal</button> '
+            f'<button class="act" onclick="navigator.clipboard.writeText(document.getElementById(\'runp\').innerText);this.innerText=\'Copied\'">Copy prompt</button> '
+            f'<button class="act" onclick="document.getElementById(\'modal\').innerHTML=\'\'">Close</button></p></div>')
+
+
+def open_run(n, to):
+    """Hand a workflow run to Claude. Desktop: the app's claude:// link just brings it forward (no documented link opens a
+    Code session with a prompt); the prompt is on the clipboard. Terminal: the documented claude-cli://open link,
+    prompt filled in but not sent (code.claude.com/docs/en/deep-links)."""
+    if to == 'desktop':
+        os.startfile('claude://')
+    else:
+        os.startfile(f'claude-cli://open?cwd={quote(VAULT, safe="")}&q={quote(run_prompt(n), safe="")}')
 
 
 def workflow_box(n):
@@ -748,7 +879,9 @@ def workflow_box(n):
         rb = runbook_path(n)
         rb_html = (f'<a class="olink" href="#" hx-get="/open-runbook?p={qp(n.rel)}" hx-swap="none" title="Opens in VS Code">'
                    f'{esc(str(n.fm.get("runbook")))} ↗</a>') if rb else '<span class="quiet">not set</span>'
-        return (f'<section class="box"><h3>Workflow</h3><dl class="wfkv">'
+        run = (f'<button class="act" hx-get="/wf/run-modal?p={qp(n.rel)}" hx-target="#modal" '
+               f'title="Shows where and how to run it">▶ Run</button>')
+        return (f'<section class="box"><h3>Workflow {run}</h3><dl class="wfkv">'
                 f'<dt>Cadence</dt><dd>{esc(n.cadence or "–")}</dd>'
                 f'<dt>Runbook</dt><dd>{rb_html}</dd>'
                 f'<dt>Uses</dt><dd>{"".join(chip(str(u)) for u in uses) or "–"}</dd></dl></section>')
@@ -800,67 +933,33 @@ def child_box(n):
             f'<ul class="tl nodes">{child_rows(n)}</ul></section>')
 
 
-# ---------- Workflows: MOCK, hard-coded, to judge the shape before building (2026-10-03) ----------
+# ---------- Workflows: every type: workflow node, details from its own STATE (2026-10-03) ----------
 
-MOCK_WF = [
-    {'id': 'mne', 'name': 'Meeting notes', 'lives': 'MNE node', 'trigger': 'by hand', 'runs': 'skill', 'status': 'live', 'last': '28 Sep', 'due': False},
-    {'id': 'gar', 'name': 'Garmin read', 'lives': 'GAR node', 'trigger': 'monthly', 'runs': 'skill', 'status': 'live', 'last': '14 Sep', 'due': True},
-    {'id': 'hfm', 'name': 'Paperwork scan', 'lives': 'HFM project', 'trigger': 'weekly', 'runs': 'skill', 'status': 'building', 'last': '19 Sep', 'due': True},
-    {'id': 'kbs', 'name': 'KB health check', 'lives': 'n8n · KBS', 'trigger': 'monthly', 'runs': 'n8n', 'status': 'building', 'last': '–', 'due': False},
-    {'id': 'gro', 'name': 'Groceries', 'lives': 'n8n · GRO', 'trigger': 'event', 'runs': 'n8n', 'status': 'live', 'last': '?', 'due': False},
-    {'id': 'rc', 'name': 'Remote Control', 'lives': 'scheduled task', 'trigger': 'logon, wake', 'runs': 'script', 'status': 'live', 'last': 'today', 'due': False},
-]
-MOCK_STEPS = [  # Paperwork scan, as its runbook's workflow: front matter would declare it
-    ('Drive Inbasket', 'claude.ai Drive · gmail', 'conn'),
-    ('Propose name, folder, action', 'paperwork-scan skill', 'skill'),
-    ('Your ticks', 'you, on this page', 'you'),
-    ('File and diarise', 'claude.ai Drive, Calendar · gmail', 'conn'),
-    ('Log one line', 'HFM LOG.md', 'vault'),
-]
-MOCK_CSS = '''<style>
-.mock{display:inline-block;font-size:.7em;letter-spacing:.08em;padding:2px 6px;border:1px dashed var(--due);color:var(--due);border-radius:4px;margin-left:8px;vertical-align:middle}
-.wft{width:100%;border-collapse:collapse;font-size:.92em}.wft th{text-align:left;color:var(--muted);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line)}
-.wft td{padding:8px;border-bottom:1px solid var(--line)}.wft tr.click{cursor:pointer}.wft tr.click:hover td{background:var(--bg)}
-.wfs{font-size:.8em;padding:1px 7px;border-radius:9px;border:1px solid var(--line)}.wfs.live{color:var(--active);border-color:var(--active)}.wfs.building{color:var(--due);border-color:var(--due)}
-.duechip{font-size:.75em;color:#fff;background:var(--due);border-radius:9px;padding:1px 6px;margin-left:6px}
-.flow{display:flex;align-items:stretch;overflow-x:auto;padding:8px 0}
-.step{min-width:150px;max-width:180px;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--surface)}
-.step b{display:block;font-size:.92em;margin-bottom:4px}.step span{font-size:.8em;color:var(--muted)}
-.step.skill{border-left:4px solid var(--vault)}.step.conn{border-left:4px solid var(--accent)}.step.you{border-left:4px solid var(--due)}.step.vault{border-left:4px solid var(--muted)}
-.arrow{align-self:center;padding:0 6px;color:var(--muted)}
-.legend{font-size:.8em;color:var(--muted);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:middle}
-</style>'''
-
-
-def workflows_mock():
+def workflows_page():
+    nodes, _ = load()
+    wfs = sorted((n for n in nodes if n.kind == 'workflow'), key=lambda n: (not n.due, n.name.lower()))
+    def uses(n):
+        us = n.fm.get('uses') if isinstance(n.fm.get('uses'), list) else []
+        return ''.join(f'<span class="uchip u-skill">{esc(str(u)[6:])}</span>' if str(u).startswith('skill ')
+                       else f'<span class="uchip u-conn">{esc(str(u))}</span>' for u in us) or '<span class="quiet">not set</span>'
+    def where(n):
+        parts, p = [], n.parent
+        while p is not None: parts.append(p.name); p = p.parent
+        return ' › '.join(reversed(parts))
     rows = ''.join(
-        f'<tr class="click" hx-get="/workflows-mock?w={w["id"]}" hx-target="#main"><td><b>{esc(w["name"])}</b></td><td>{esc(w["lives"])}</td>'
-        f'<td>{esc(w["trigger"])}</td><td>{esc(w["runs"])}</td><td><span class="wfs {w["status"]}">{w["status"]}</span></td>'
-        f'<td>{esc(w["last"])}{"<span class=duechip>due</span>" if w["due"] else ""}</td></tr>' for w in MOCK_WF)
-    return (f'{MOCK_CSS}<div class="anchor"><h1>Workflows <span class="mock">MOCK DATA</span></h1>'
-            f'<p class="meta"><span class="muted">Every file carrying <code>workflow:</code> front matter, wherever it lives. Click a row.</span></p>'
-            f'<section class="box"><table class="wft"><tr><th>Name</th><th>Lives in</th><th>Trigger</th><th>Runs</th><th>Status</th><th>Last run</th></tr>{rows}</table></section></div>')
-
-
-def workflow_mock(wid):
-    w = next((x for x in MOCK_WF if x['id'] == wid), MOCK_WF[2])
-    steps = '<span class="arrow">→</span>'.join(f'<div class="step {k}"><b>{esc(a)}</b><span>{esc(b)}</span></div>' for a, b, k in MOCK_STEPS)
-    runs = ''.join(f'<li>{d} <span class="muted">– {esc(t)}</span></li>' for d, t in [
-        ('19 Sep', 'run one: 14 files, 12 filed, 2 left for you, 3 dates diarised'),
-        ('12 Sep', 'dry run on the runbook draft, nothing filed')])
-    back = '<a class="olink" href="#" hx-get="/workflows-mock" hx-target="#main">← All workflows</a>'
-    return (f'{MOCK_CSS}<div class="anchor">{back}<h1>{esc(w["name"])} <span class="mock">MOCK DATA</span></h1>'
-            f'<p class="meta"><span class="wfs {w["status"]}">{w["status"]}</span> <span class="muted">{esc(w["trigger"])} · lives in {esc(w["lives"])} · '
-            f'last run {esc(w["last"])}</span>{"<span class=duechip>due</span>" if w["due"] else ""}</p>'
-            f'<section class="box"><h3>How it runs</h3><div class="flow">{steps}</div>'
-            f'<p class="legend"><i style="background:var(--accent)"></i>connection<i style="background:var(--vault)"></i>skill'
-            f'<i style="background:var(--due)"></i>you<i style="background:var(--muted)"></i>vault</p></section>'
-            f'<section class="box"><h3>Run it</h3><p><span class="muted">7 files waiting in the Inbasket.</span></p>'
-            f'<p><button class="act" disabled title="Mock: would run the propose step in headless Claude">Propose filing</button> '
-            f'<span class="muted">then tick, then Apply ticked, as on Task review</span></p></section>'
-            f'<section class="box"><h3>Past runs <span class="muted">(2)</span></h3><ul class="tl">{runs}</ul></section>'
-            f'<section class="box"><h3>Links</h3><p><span class="olink">Runbook: paperwork-scan SKILL.md ↗</span> · '
-            f'<span class="olink">Node: HFM ↗</span></p></section></div>')
+        f'<tr class="click" hx-get="/view?p={qp(n.rel)}" hx-target="#main"><td><b>{esc(n.name)}</b>'
+        f'<div class="muted wfwhere">{esc(where(n))}</div></td>'
+        f'<td>{esc(n.cadence or "–")}{"<span class=duechip>due</span>" if n.due else ""}</td>'
+        f'<td><span class="st st-{n.shown_status}">{n.shown_status}</span></td>'
+        f'<td>{uses(n)}</td><td class="muted">{esc(n.updated or "–")}</td>'
+        # Run opens the hand-off modal; stopPropagation keeps the row from also opening the node page
+        f'<td><button class="act" hx-get="/wf/run-modal?p={qp(n.rel)}" hx-target="#modal" '
+        f'onclick="event.stopPropagation()">▶ Run</button></td></tr>' for n in wfs)
+    return (f'<div class="top"><h1>Workflows <span class="muted">({len(wfs)})</span></h1>'
+            f'<p class="meta"><span class="muted">Every node with <code>type: workflow</code>. Cadence, runbook and uses come from its STATE. '
+            f'Click a row for its page.</span></p>'
+            f'<section class="box"><table class="wft"><tr><th>Workflow</th><th>Cadence</th><th>Status</th><th>Uses</th><th>STATE updated</th><th></th></tr>'
+            f'{rows}</table></section></div>')
 
 
 HELP_REVIEW = ('The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
@@ -1021,8 +1120,8 @@ def variant_e(nodes, roots):
                   f'<span class="tw">▸</span>{esc(a.name)}</div><ul class="sub">{tree(a.children)}</ul></div>' for a in anchors)
     # two layers (2026-10-03): pages and actions on top, then the controls for the tree right above the tree
     tools = ('<div class="nh">Pages</div>'
-             '<div class="navpages"><a href="#" hx-get="/task-review" hx-target="#main">Task review</a>'
-             '<a href="#" hx-get="/workflows-mock" hx-target="#main">Workflows</a></div>'
+             '<div class="navpages"><a href="#" class="on" hx-get="/top" hx-target="#main">Overview</a><a href="#" hx-get="/task-review" hx-target="#main">Task review</a>'
+             '<a href="#" hx-get="/workflows" hx-target="#main">Workflows</a></div>'
              '<div class="navtools"><button hx-get="/notion-refresh" hx-swap="none" '
              'title="Pull Notion again now (otherwise every 5 minutes)">↻ Refresh Notion</button></div>'
              '<hr class="navsep"><div class="nh">Nodes</div>'
@@ -1031,6 +1130,9 @@ def variant_e(nodes, roots):
     js = '''<script>(function(){
 const KEY='cockpit.open';let open;try{open=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){open=null}
 const items=()=>document.querySelectorAll('nav .it');
+const nd=new URLSearchParams(location.search).get('node');
+if(nd)document.addEventListener('DOMContentLoaded',()=>{htmx.ajax('GET','/view?code='+encodeURIComponent(nd),'#main');
+document.querySelectorAll('.navpages a').forEach(a=>a.classList.remove('on'))});
 document.addEventListener('click',e=>{const pg=e.target.closest('.navpages a'),nd=e.target.closest('nav .nv, nav .anc');
 if(pg||nd)document.querySelectorAll('.navpages a').forEach(a=>a.classList.toggle('on',a===pg))});
 function save(){try{localStorage.setItem(KEY,JSON.stringify([...items()].filter(i=>i.classList.contains('open')).map(i=>i.dataset.k)))}catch(e){}}
@@ -1043,7 +1145,8 @@ function setDone(on){document.body.classList.toggle('show-done',on);const d=docu
 try{localStorage.setItem('cockpit.done',on?'1':'0')}catch(e){}}
 let sd=false;try{sd=localStorage.getItem('cockpit.done')==='1'}catch(e){}setDone(sd);
 })();</script>'''
-    return f'<div class="ve"><nav>{tools}{nav}</nav><section id="main">{anchor_page(anchors[0])}</section></div>{js}'
+    return (f'<div class="ve"><nav>{tools}{nav}</nav><section id="main">{top_page()}</section></div>{js}'
+            '<div id="modal" onclick="if(event.target===this)this.innerHTML=\'\'"></div>')
 
 
 VARIANTS = {'E': ('Nav + anchor', variant_e), 'D': ('Headline', variant_d), 'A': ('Outline', variant_a), 'B': ('Board', variant_b), 'C': ('Map', variant_c)}
@@ -1138,7 +1241,23 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .wfkv dt{color:var(--muted)}.wfkv dd{margin:0;display:flex;flex-wrap:wrap;gap:6px}
 .wfs{font-size:.8em;padding:1px 7px;border-radius:9px;border:1px solid var(--line)}.wfs.live{color:var(--active);border-color:var(--active)}.wfs.building{color:var(--due);border-color:var(--due)}
 .uchip{font-size:12px;padding:1px 8px;border-radius:9px;border:1px solid var(--line)}.u-skill{border-color:var(--vault);color:var(--vault)}.u-conn{border-color:var(--accent);color:var(--accent)}
-.anchor{max-width:50vw}.anchor h1{font-size:24px;font-weight:600;margin:4px 0 6px}
+header h1 a.home{color:inherit;text-decoration:none}header h1 a.home:hover{color:var(--accent)}
+.anchor{max-width:50vw}
+.conflict{font-size:10px;letter-spacing:.04em;border-radius:8px;padding:1px 7px;margin-left:6px;border:1px solid var(--due);color:var(--due);vertical-align:1px;text-transform:none}.why-disagrees{color:var(--due)}
+.h1code{font-size:.6em;font-weight:600;letter-spacing:.08em;color:var(--muted);margin-right:12px;vertical-align:.25em}
+.runp{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;white-space:pre-wrap;font-size:14px}
+.box h3 .act{float:right;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink)}
+.wft{width:100%;border-collapse:collapse;font-size:14px}.wft th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.wft td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}.wft .uchip{display:inline-block;margin:0 4px 4px 0}
+.wft tr.click{cursor:pointer}.wft tr.click:hover td{background:var(--bg)}.wfwhere{font-size:12px;margin-top:2px}
+.duechip{font-size:11px;color:#fff;background:var(--due);border-radius:9px;padding:1px 6px;margin-left:6px}
+.top h1{font-size:24px;font-weight:600;margin:4px 0 14px}.topstrip{display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start}
+.topstrip .box{margin:0}.topcols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:20px;align-items:start}
+.topcol{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.topcol h2{font-size:18px;font-weight:600;margin:0 0 4px;cursor:pointer}.topcol h2:hover{color:var(--accent)}
+.topcol h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 0 6px}
+.topcol .aim{font-size:13px;color:var(--muted);margin:0 0 8px}.topcol .rus{margin:0;flex-wrap:wrap}.topnote{font-size:12px;margin-top:18px}
+@media (max-width:1100px){.topstrip,.topcols{grid-template-columns:1fr}}.anchor h1{font-size:24px;font-weight:600;margin:4px 0 6px}
 .anchor h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:28px 0 8px}
 .quiet{color:var(--muted)}
 .att{list-style:none;margin:0;padding:0}
@@ -1178,8 +1297,9 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .tl{list-style:none;margin:0;padding:0}.tl li{padding:6px 0;border-bottom:1px solid var(--line);font-size:14px;display:flex;gap:10px;align-items:baseline}
 .tl li:last-child{border-bottom:0}
 .tl li,.tl li:last-child{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0}
-.tl li::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
-.tl li{flex-wrap:wrap}.tt.has-det{cursor:pointer}.more{color:var(--muted);margin-left:4px}.li-open .more{display:none}
+/* task rows: Notion's circle-and-tick, decoration only for now (2026-10-03); masked so it takes the theme's muted colour */
+.tl li::before{content:'';flex:none;width:14px;height:14px;background:var(--muted);align-self:center;margin-right:2px;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat}
+.tl li{flex-wrap:wrap}.tl li .tt{flex:1 1 0;min-width:0}.tt.has-det{cursor:pointer}.more{color:var(--muted);margin-left:4px}.li-open .more{display:none}
 .det{display:none;flex-basis:100%;font-size:13px;color:var(--muted);padding:6px 0 2px 15px;line-height:1.5}
 .tl li.open .det{display:block}.tl li.open .more{display:none}
 .tl.nodes li::before{display:none}
@@ -1197,6 +1317,8 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .pr::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
 .pr.open .det{display:block}.pr.open .more{display:none}.tl a{color:inherit;text-decoration:none}.tl a:hover{color:var(--accent)}
 .sm{margin-left:auto;flex:none;font-size:9px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:0 4px}
+/* source letters take their source colour, as the Vault / Notion / Repo pills do (2026-10-03) */
+.sm-vault{color:var(--vault);border-color:var(--vault)}.sm-notion{color:var(--notion);border-color:var(--notion)}.sm-repo{color:var(--repo);border-color:var(--repo)}
 .nextline .sm{margin-left:8px;vertical-align:2px}
 .due{flex:none;margin-left:auto;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:0 7px;white-space:nowrap}
 .due.late{color:var(--due);border-color:var(--due)}.stray+.due{margin-left:8px}.due+.sm{margin-left:6px}
@@ -1231,7 +1353,7 @@ def page(variant):
     summary = ' · '.join(f'{v} {k}' for k, v in sorted(counts.items()))
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cockpit</title><script src="https://unpkg.com/htmx.org@2.0.3"></script><style>{CSS}</style></head><body>
-<header><h1>COCKPIT</h1>{'' if variant in 'DE' else f'<span class="muted">PROTOTYPE · {len(nodes)} nodes · {summary} · read {datetime.now():%H:%M}</span>'}</header>
+<header><h1><a class="home" href="/" title="Home: Overview">COCKPIT</a></h1>{'' if variant in 'DE' else f'<span class="muted">PROTOTYPE · {len(nodes)} nodes · {summary} · read {datetime.now():%H:%M}</span>'}</header>
 <main>{fn(nodes, roots)}</main>
 <div class="switch"><a href="?variant={prev}">←</a><span>{variant} ({name})</span><a href="?variant={nxt}">→</a></div>
 <script>document.addEventListener('keydown',e=>{{if(e.target.closest('input,textarea,[contenteditable]'))return;
@@ -1260,13 +1382,30 @@ class H(BaseHTTPRequestHandler):
         elif u.path == '/edit-skill':  # Obsidian can't open .claude/ (dot-folder), so VS Code; this one file only
             subprocess.Popen([VSCODE, SKILL_FILE], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             self.send_response(204); self.end_headers(); return
-        elif u.path == '/workflows-mock':
-            body = workflow_mock(q['w'][0]) if q.get('w') else workflows_mock()
+        elif u.path == '/brief':
+            code = q.get('code', [''])[0].upper()
+            if code:
+                nodes, _ = load()
+                n = next((x for x in nodes if x.code == code), None)
+                text = node_brief(n) if n else f'No node with code {code}.'
+            else:
+                text = overview_brief()
+            self.send_response(200); self.send_header('Content-Type', 'text/plain; charset=utf-8'); self.end_headers()
+            self.wfile.write(text.encode('utf-8')); return
+        elif u.path == '/top':
+            body = top_page()
+        elif u.path == '/wf/run-modal':
+            nodes, _ = load()
+            n = next((x for x in nodes if x.rel == q.get('p', [''])[0] and x.kind == 'workflow'), None)
+            body = run_modal(n) if n else '<div class="detail"><p>Not a workflow.</p></div>'
+        elif u.path == '/workflows':
+            body = workflows_page()
         elif u.path == '/task-review':
             body = task_review_page(force=q.get('force') == ['1'])
         elif u.path == '/view':
             nodes, _ = load()
-            n = next((n for n in nodes if n.rel == q.get('p', [''])[0]), None)
+            code = q.get('code', [''])[0].upper()
+            n = next((n for n in nodes if (code and n.code == code) or (not code and n.rel == q.get('p', [''])[0])), None)
             body = view(n) if n else '<p>not found</p>'
         elif u.path == '/node':
             nodes, _ = load()
@@ -1287,6 +1426,11 @@ class H(BaseHTTPRequestHandler):
             st = notion_state()
             if st['data']: suggest(st)
             body = task_review_page()
+        elif u.path == '/wf/open':
+            qs = parse_qs(u.query); nodes, _ = load()
+            n = next((x for x in nodes if x.rel == qs.get('p', [''])[0] and x.kind == 'workflow'), None)
+            if n: open_run(n, qs.get('to', ['terminal'])[0])
+            self.send_response(204 if n else 404); self.end_headers(); return
         elif u.path == '/task-review/apply':
             body = task_review_page(msg=apply_ticked(form.get('id', [])))
         else:
