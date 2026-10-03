@@ -23,6 +23,50 @@ NOTION_MAP = {'backlog': 'backlog', 'someday': 'backlog', 'not started': 'backlo
               'waiting': 'waiting', 'blocked': 'blocked', 'done': 'done', 'cancelled': 'done'}
 esc = html.escape
 
+# Notion live, decided 2026-10-03: one pull of Tasks, Projects and Areas, cached, Refresh forces it,
+# last good pull kept and flagged stale if Notion fails. Pull and checks live in the vault's Tools/.
+sys.path.insert(0, os.path.join(VAULT, 'Tools'))
+from notion_live import pull as notion_pull
+from task_review import review as task_review, SECTIONS as REVIEW_SECTIONS
+import threading, time
+NOTION_TTL = 300
+_notion = {'data': None, 'at': 0.0, 'error': ''}
+_notion_lock = threading.Lock()
+
+
+def notion_state(force=False):
+    with _notion_lock:
+        if force or not _notion['data'] or time.time() - _notion['at'] > NOTION_TTL:
+            try: _notion.update(data=notion_pull(), error='')
+            except Exception as e: _notion['error'] = str(e)[:200]
+            _notion['at'] = time.time()  # a failure waits out the TTL too, Refresh retries
+        return _notion
+
+
+def notion_for(url):
+    """A node's Notion rows from the live pull: a project's tasks, or an Area's direct (Task-Area) tasks."""
+    # the id is the last 32-hex run, dashed or not; a slug like "...-camera-" must not bleed into it
+    ids = re.findall(r'(?<![0-9a-f])([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})(?![0-9a-f])', url.split('?')[0])
+    st = notion_state()
+    d = st['data']
+    if not ids or not d: return None
+    pid = ids[-1].replace('-', '')
+    if pid in d['projects']:
+        p = d['projects'][pid]; head = {'name': p['name'], 'status': p['status'], 'url': p['url']}
+        rows = [t for t in d['tasks'] if t['project'] == pid]
+    elif pid in d['areas']:
+        a = d['areas'][pid]; head = {'name': a['name'], 'status': '', 'url': a['url']}
+        rows = [t for t in d['tasks'] if pid in t['areas']]
+    else:
+        return None
+    return {'pulled': d['pulled'][11:16], 'stale': bool(st['error']), 'project': head,
+            'tasks': [{'task': t['title'], 'status': t['status'], 'due': t['due'], 'url': t['url']} for t in rows]}
+
+
+def notion_tip(n):
+    if not n.notion: return 'linked, Notion unavailable' if notion_state()['error'] else 'linked, not found in Notion'
+    return f"pulled {n.notion['pulled']}" + (' – stale, last pull failed' if n.notion['stale'] else '')
+
 
 # ---------- data ----------
 
@@ -101,9 +145,8 @@ class Node:
         self.blocked_on = next((t['title'] for t in self.vault_tasks if t['status'] == 'blocked'), '')
         # sources
         notion = fm.get('notion', '')
-        snap_p = os.path.join(scaffold, 'notion.json')
-        self.notion = json.loads(read(snap_p)) if os.path.exists(snap_p) else None
-        self.notion_linked = notion.startswith('http') or self.notion is not None
+        self.notion_linked = notion.startswith('http')
+        self.notion = notion_for(notion) if self.notion_linked else None
         repo = fm.get('repo', '')
         if not repo:
             r = re.search(r'~/dev/[\w.-]+', ' '.join(str(v) for v in fm.values()))
@@ -225,7 +268,7 @@ def badges(n):
     out = ''
     for s in n.sources:
         tip = s
-        if s == 'notion' and n.notion: tip = f"Notion snapshot pulled {n.notion.get('pulled', '?')}"
+        if s == 'notion': tip = 'Notion ' + notion_tip(n)
         if s == 'repo':
             ri = n.repo_info or {}
             tip = f"{n.repo} · " + ('last commit ' + ri['last'] if ri.get('last') else ('no commits yet' if ri.get('exists') else 'not created yet'))
@@ -522,7 +565,7 @@ def state_box(n):
 def sys_pills(n):
     tips = {'vault': f'STATE updated {n.updated or "?"}'}
     if n.notion_linked:
-        tips['notion'] = f'snapshot pulled {n.notion.get("pulled", "?")}' if n.notion else 'linked, never pulled'
+        tips['notion'] = notion_tip(n)
     if n.repo:
         ri = n.repo_info or {}
         tips['repo'] = f'{n.repo} · ' + (f'last commit {ri["last"]}' if ri.get('last') else 'no commits yet' if ri.get('exists') else 'not created')
@@ -682,6 +725,37 @@ def node_page(n):
             f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{context_box(n)}</div>')
 
 
+HELP_REVIEW = ('Read-only. The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
+               'To act on a finding, ask Claude for a task review: it proposes an action per row and applies on your yes. '
+               'Rerun pulls Notion again, use it after changing things there.')
+
+
+def task_review_page(force=False):
+    st = notion_state(force)
+    rerun = '<a class="olink" href="#" hx-get="/task-review?force=1" hx-target="#main">Rerun ↻</a>'
+    if not st['data']:
+        return f'<div class="anchor"><h1>Task review</h1><p class="quiet">Notion unavailable: {esc(st["error"])}</p>{rerun}</div>'
+    r = task_review(st['data'])
+    c = r['counts']
+    stale = f' · <span class="h-blocked">stale, last pull failed: {esc(st["error"])}</span>' if st['error'] else ''
+    btn, panel = help_q(HELP_REVIEW)
+    def li(f):
+        bits = [f['project_name'] if f['project_name'] != '-' else '', f['status'] or 'no status', f'due {f["due"][:10]}' if f.get('due') else '']
+        return (f'<li><a href="{esc(f["url"])}" target="_blank" rel="noopener">{esc(f["title"] or "(untitled)")}</a> '
+                f'<span class="muted">{esc(" · ".join(b for b in bits if b))} – {esc(f["why"])}</span></li>')
+    out = ''
+    for key, label in REVIEW_SECTIONS:
+        rows = [f'<li>{esc(d)}</li>' for d in (r['drift'] if key == 'drift' else [])] + [li(f) for f in r['findings'].get(key, [])]
+        body = f'<ul class="tl">{"".join(rows)}</ul>' if rows else '<p class="quiet">Nothing.</p>'
+        out += f'<section class="box"><h3>{label} <span class="muted">{len(rows)}</span></h3>{body}</section>'
+    ov = ''.join(f'<li>{esc(o)}</li>' for o in r['overload'])
+    out += (f'<section class="box"><h3>Overload <span class="muted">{len(r["overload"])}</span></h3>'
+            f'{f"<ul class=tl>{ov}</ul>" if ov else "<p class=quiet>Nothing.</p>"}</section>')
+    return (f'<div class="anchor"><div class="hwrap"><h1>Task review {btn}</h1>{panel}</div>'
+            f'<p class="meta"><span class="muted">{c["open"]} open of {c["total"]} tasks · {c["projects"]} projects · '
+            f'pulled {st["data"]["pulled"][11:16]}{stale}</span> {rerun}</p>{out}</div>')
+
+
 def view(n):
     if n.parent is None: return anchor_page(n)
     if n.kind == 'area' and not n.own_work: return mid_page(n)
@@ -703,7 +777,9 @@ def variant_e(nodes, roots):
     nav = ''.join(f'<div class="it anc-it open" data-k="{esc(a.rel)}"><div class="anc" hx-get="/view?p={qp(a.rel)}" hx-target="#main">'
                   f'<span class="tw">▸</span>{esc(a.name)}</div><ul class="sub">{tree(a.children)}</ul></div>' for a in anchors)
     tools = ('<div class="navtools"><button data-all="1">Expand all</button><button data-all="0">Collapse all</button>'
-             '<button id="donebtn">Show done</button></div>')
+             '<button id="donebtn">Show done</button></div>'
+             '<div class="navtools"><button hx-get="/task-review" hx-target="#main">Task review</button>'
+             '<button hx-get="/notion-refresh" hx-swap="none" title="Pull Notion again now (otherwise every 5 minutes)">Refresh Notion</button></div>')
     js = '''<script>(function(){
 const KEY='cockpit.open';let open;try{open=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){open=null}
 const items=()=>document.querySelectorAll('nav .it');
@@ -897,6 +973,11 @@ class H(BaseHTTPRequestHandler):
             ok = os.path.isdir(p) and any(os.path.normcase(p).startswith(r) for r in REVEAL_ROOTS)
             if ok: subprocess.Popen(['explorer', p])
             self.send_response(204 if ok else 403); self.end_headers(); return
+        elif u.path == '/notion-refresh':  # htmx reloads the page on HX-Refresh
+            notion_state(force=True)
+            self.send_response(200); self.send_header('HX-Refresh', 'true'); self.send_header('Content-Length', '0'); self.end_headers(); return
+        elif u.path == '/task-review':
+            body = task_review_page(force=q.get('force') == ['1'])
         elif u.path == '/view':
             nodes, _ = load()
             n = next((n for n in nodes if n.rel == q.get('p', [''])[0]), None)

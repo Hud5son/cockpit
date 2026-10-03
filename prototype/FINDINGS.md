@@ -2,6 +2,10 @@
 
 What the front-page prototype has settled, and what it hasn't. Tagged Decided (Alex said so), Proposed (Claude's, awaiting a yes) or Unverified.
 
+### Decided, 2026-10-03
+
+- **Notion live, one pull.** Tasks, Projects and Areas in one go, CRM later, split by node locally. Cached a few minutes, Refresh forces it, last good pull kept and shown flagged if Notion fails. A full pull took 2s; cost grows with task count, not node count. Replaces per-node `notion.json` snapshots for the cockpit. Alex chose this over snapshots after asking why not live.
+
 ### Decided, 2026-10-02
 
 - **Start simple, add detail until something becomes unworkable.** Less is more, no busy pages. Navigation carries no metadata.

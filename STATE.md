@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 **Blocked on:** nothing.
@@ -24,10 +24,17 @@ updated: 2026-10-02
    - not before CKP ends 2026-11-15; the model is still moving. Decided 2026-10-02
 8. Global CLAUDE.md and memory index have no link
    - outside the vault, Obsidian can't open them; Windows has no .md app set
-9. Skills summary
+9. Skills, workflows and tools summary
+   - serves VOS objective, decided 2026-10-03: each has an entry saying what it is for, where it lives and what uses it; Alex finds five at random in two clicks, by 2026-11-15
    - which skills exist (vault, global, plugin), what each is for from its description, and which a node uses as its runbook
    - grouped by category, e.g. organisational, voice and writing, dev and tooling, domain
    - category written as `category:` in each SKILL.md front matter, not guessed. Decided 2026-10-02
    - "likely out of date" = age against the category's shelf life: tooling dates fastest as models improve, voice slower, organisational slowest. Shelf lives Proposed, e.g. 3, 12 and 18 months
+10. CRM in the Notion pull
+    - Companies, Contacts, Deals; data source ids in the GTD Notion reference
+11. Scripts and MCP wiring list
+    - every script that exists (vault `Tools/`, `~/dev` repos, skills), its language and what calls it
+    - every MCP server and connector: which account or workspace it is bound to, which scripts and skills use it
+    - serves the same VOS objective as row 9
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
