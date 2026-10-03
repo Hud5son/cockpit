@@ -913,9 +913,9 @@ def child_rows(n):
     """One row per child, type first. An Area row carries its roll-up and opens in place to its own children."""
     rows = ''
     for c in sorted(n.children, key=lambda c: touched(c), reverse=True):
-        nxt = f' <span class="muted">– {esc(c.next[:120])}</span>' if c.next else ''
+        nxt = f' <span class="muted cnext">– {esc(c.next[:120])}</span>' if c.next else ''  # wraps in place
         head = (f'<span class="kp kp-{c.kind}">{c.kind}</span> '
-                f'<a href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
+                f'<a class="cname" href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
                 f'<span class="st st-{c.shown_status}">{c.shown_status}</span>')
         if c.kind == 'area' and c.children:
             rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{head}<span class="rus">{rollup(c)}</span></summary>'
@@ -1304,7 +1304,10 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .tl li.open .det{display:block}.tl li.open .more{display:none}
 .tl.nodes li::before{display:none}
 /* Child state look-through (2026-10-03) */
-.tl.nodes li{align-items:center}.tl.nodes .kp{flex:none}
+.tl.nodes li{align-items:baseline}.tl.nodes .cnext{flex:1 1 0;min-width:0}
+/* columns: type, name, status, next all start at the same x on every row (2026-10-03) */
+.tl.nodes .cname{flex:0 0 210px;min-width:0}.tl.nodes .st{flex:0 0 64px;box-sizing:border-box;text-align:center;order:9;margin-left:auto;align-self:flex-start}
+.tl.nodes li.ar .rus{order:8}.tl.nodes li.ar>details>summary>.st{margin-left:12px}.tl.nodes .kp{flex:none}
 .tl.nodes .tw{flex:none;width:12px;color:var(--muted);font-size:12px;text-align:center;display:inline-block;transition:transform .15s}
 .tl.nodes li.ar{display:block}
 .tl.nodes li.ar>details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
