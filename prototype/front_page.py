@@ -311,7 +311,7 @@ def detail(n):
 {f'<p class="aim">{esc(n.aim)}</p>' if n.aim else ''}
 {f'<p><span class="k">Next</span>{esc(n.next)}</p>' if n.next else ''}
 {repo}
-{f'<h3>Tasks <span class="muted">{len(n.tasks)}</span></h3><ul class="tasks">{rows}</ul>{more}' if n.tasks else ''}
+{f'<h3>Tasks <span class="muted">({len(n.tasks)})</span></h3><ul class="tasks">{rows}</ul>{more}' if n.tasks else ''}
 {f'<h3>Children</h3><ul class="kids">{kids}</ul>' if kids else ''}
 </div>'''
 
@@ -349,7 +349,7 @@ def variant_b(nodes, roots):
                       f'<div class="crumb">{esc(" › ".join(crumb))}</div>'
                       f'<div class="ct">{GLYPH[n.kind]} {label(n)} {badges(n)}</div>'
                       f'<div class="nx">{esc(n.next[:110])}</div><div class="cnts">{cnt}</div></div>')
-        out += f'<section class="col"><h3><span class="pill p-{c}">{c}</span> <span class="muted">{cards.count("class=\"card")}</span></h3>{cards}</section>'
+        out += f'<section class="col"><h3><span class="pill p-{c}">{c}</span> <span class="muted">({cards.count("class=\"card")})</span></h3>{cards}</section>'
     return f'<div class="vb">{out}</div><div id="modal" onclick="if(event.target===this)this.innerHTML=\'\'"></div>'
 
 
@@ -555,7 +555,7 @@ def state_box(n):
         if rows: out += f'<h4 class="h-{s}">{s.title()}</h4>{ul(rows)}'
     back = by('backlog')
     if back:
-        out += (f'<details class="bl"><summary><h4>Backlog <span class="muted">{len(back)}</span></h4></summary>'
+        out += (f'<details class="bl"><summary><h4>Backlog <span class="muted">({len(back)})</span></h4></summary>'
                 f'{ul(back)}</details>')
     if not out:  # worked out from every source, never written (2026-10-03)
         out = '<p class="quiet">No work at this level, monitoring only.</p>' if n.kind == 'area' else '<p class="quiet">Nothing recorded.</p>'
@@ -702,7 +702,7 @@ def context_box(n):
         hist.append(f'<li class="fold"><span class="fn">retired/</span><span class="fp">{len(os.listdir(ret))} old front pages</span><span class="ago"></span></li>')
 
     rest = disk + hist
-    folder = (f'<details class="ff"><summary><div class="gh"><h4>Folders &amp; files <span class="muted">{len(rest)}, not loaded</span></h4>'
+    folder = (f'<details class="ff"><summary><div class="gh"><h4>Folders &amp; files <span class="muted">({len(rest)}, not loaded)</span></h4>'
               f'{reveal_link(n.folder)}</div></summary><ul class="fl">{"".join(rest)}</ul></details>') if rest else ''
     return ('<section class="box"><h3 class="ch">Context<span class="lu">Last updated</span></h3>'
             + group('On vault chat initialisation', start)
@@ -738,7 +738,7 @@ def child_box(n):
         nxt = f' <span class="muted">– {esc(c.next[:120])}</span>' if c.next else ''
         rows += (f'<li><a href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
                  f'<span class="kp kp-{c.kind}">{c.kind}</span> <span class="st st-{c.shown_status}">{c.shown_status}</span>{nxt}</li>')
-    return f'<section class="box"><h3>Child state <span class="muted">{len(n.children)}</span></h3><ul class="tl">{rows}</ul></section>'
+    return f'<section class="box"><h3>Child state <span class="muted">({len(n.children)})</span></h3><ul class="tl">{rows}</ul></section>'
 
 
 HELP_REVIEW = ('The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
@@ -848,7 +848,7 @@ def task_review_page(force=False, msg=''):
         return (f'<li><a href="{esc(f["url"])}" target="_blank" rel="noopener">{esc(f["title"] or "(untitled)")}</a> '
                 f'<span class="muted">{esc(" · ".join(b for b in bits if b))} – {esc(f["why"])}</span>{prop}</li>')
     def fold(label, rows, open_=False):  # closed by default, count in the heading; an empty section has nothing to open
-        head = f'<h3>{label} <span class="muted">{len(rows)}</span></h3>'
+        head = f'<h3>{label} <span class="muted">({len(rows)})</span></h3>'
         if not rows: return f'<section class="box">{head}</section>'
         return (f'<section class="box"><details class="bl"{" open" if open_ else ""}><summary>{head}</summary>'
                 f'<ul class="tl">{"".join(rows)}</ul></details></section>')
