@@ -911,19 +911,21 @@ def rollup(n):
     return '<span class="ru">·</span>'.join(f'<span class="ru ru-{s}">{counts[s]} {s}</span>' for s in ROLLUP_ORDER if counts.get(s))
 
 
-def child_rows(n):
-    """One row per child, type first. An Area row carries its roll-up and opens in place to its own children."""
+def child_rows(n, depth=0):
+    """One flat table: type, name, next (or an Area's roll-up), status, the same columns at every depth.
+    Only the name indents. An Area row opens in place to its own children (2026-10-04)."""
     rows = ''
     for c in sorted(n.children, key=lambda c: touched(c), reverse=True):
-        nxt = f' <span class="muted cnext">– {esc(c.next[:120])}</span>' if c.next else ''  # wraps in place
-        head = (f'<span class="kp kp-{c.kind}">{c.kind}</span> '
-                f'<a class="cname" href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a> '
-                f'<span class="st st-{c.shown_status}">{c.shown_status}</span>')
+        name = f'<a class="cname" href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a>'
+        pill = f'<span class="kp kp-{c.kind}">{c.kind}</span>'
+        st = f'<span class="st st-{c.shown_status}">{c.shown_status}</span>'
         if c.kind == 'area' and c.children:
-            rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{head}<span class="rus">{rollup(c)}</span></summary>'
-                     f'<ul class="tl nodes sub">{child_rows(c)}</ul></details></li>')
+            mid = f'<span class="cnext rus">{rollup(c) or "<span class=ru>nothing below yet</span>"}</span>'
+            rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{pill}{name}{mid}{st}</summary>'
+                     f'<ul class="tl nodes sub">{child_rows(c, depth + 1)}</ul></details></li>')
         else:
-            rows += f'<li><span class="tw blank"></span>{head}{nxt}</li>'
+            mid = f'<span class="muted cnext nx"><span>{esc(c.next[:120])}</span></span>' if c.next else '<span class="cnext"></span>'
+            rows += f'<li><span class="tw blank"></span>{pill}{name}{mid}{st}</li>'
     return rows
 
 
@@ -1305,18 +1307,29 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .det{display:none;flex-basis:100%;font-size:13px;color:var(--muted);padding:6px 0 2px 15px;line-height:1.5}
 .tl li.open .det{display:block}.tl li.open .more{display:none}
 .tl.nodes li::before{display:none}
-/* Child state look-through (2026-10-03) */
-.tl.nodes li{align-items:baseline}.tl.nodes .cnext{flex:1 1 0;min-width:0}
-/* columns: type, name, status, next all start at the same x on every row (2026-10-03) */
-.tl.nodes .cname{flex:0 0 210px;min-width:0}.tl.nodes .st{flex:0 0 64px;box-sizing:border-box;text-align:center;order:9;margin-left:auto;align-self:flex-start}
-.tl.nodes li.ar .rus{order:8}.tl.nodes li.ar>details>summary>.st{margin-left:12px}.tl.nodes .kp{flex:none}
+/* Child state, grouped (2026-10-04): one card per top-level row; an open Area's card holds its children as plain
+   lines with a faint rail down the left. Columns (type, name, next or roll-up, status) line up at every depth. */
+.tl.nodes li{align-items:center}.tl.nodes .cnext{flex:1 1 0;min-width:0}
+/* hover (2026-10-04): the card under the pointer gets an accent border, the row under it a faint accent tint */
+.tl.nodes:not(.sub)>li{transition:border-color .12s,background-color .12s}
+.tl.nodes:not(.sub)>li:hover{border-color:var(--accent)}
+.tl.nodes:not(.sub)>li:not(.ar):hover,.tl.nodes li.ar>details>summary:hover,.tl.nodes.sub>li:not(.ar):hover{background:color-mix(in srgb,var(--accent) 7%,var(--bg))}
+.tl.nodes li.ar>details>summary{border-radius:4px}
+/* the same hover on task rows: State, Task cleanup, Overview (2026-10-04) */
+.tl:not(.nodes)>li{transition:border-color .12s,background-color .12s}
+.tl:not(.nodes)>li:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--bg))}.tl.nodes .cnext.nx{display:flex;gap:7px;align-items:flex-start}.tl.nodes .cnext.nx::before{content:'';flex:none;width:13px;height:13px;margin-top:3px;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat}
+.tl.nodes .cname{flex:0 0 230px;min-width:0;box-sizing:border-box}
+.tl.nodes .st{flex:0 0 64px;box-sizing:border-box;text-align:center;margin-left:auto;align-self:center}.tl.nodes .kp{flex:none}
 .tl.nodes .tw{flex:none;width:12px;color:var(--muted);font-size:12px;text-align:center;display:inline-block;transition:transform .15s}
 .tl.nodes li.ar{display:block}
-.tl.nodes li.ar>details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tl.nodes li.ar>details>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
 .tl.nodes li.ar>details>summary::-webkit-details-marker{display:none}.tl.nodes li.ar>details>summary::marker{content:''}
 .tl.nodes li.ar>details[open]>summary .tw{transform:rotate(90deg)}
-.tl.nodes.sub{margin:8px 0 0 22px}.tl.nodes.sub li{background:var(--surface)}
-.rus{margin-left:auto;display:flex;gap:6px;align-items:center}.ru{font-size:11px;color:var(--muted);white-space:nowrap}
+.tl.nodes.sub{margin:8px 0 0;position:relative}
+.tl.nodes.sub>li,.tl.nodes.sub>li:last-child{background:color-mix(in srgb,var(--ink) 4%,var(--bg));border:0;border-top:1px solid var(--line);border-radius:0;margin:0 -12px;padding:8px 12px}
+.tl.nodes.sub .tl.nodes.sub>li,.tl.nodes.sub .tl.nodes.sub>li:last-child{background:color-mix(in srgb,var(--ink) 8%,var(--bg))}
+.tl.nodes.sub>li:last-child{border-radius:0 0 6px 6px;margin-bottom:-8px}
+.rus{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}.ru{font-size:11px;color:var(--muted);white-space:nowrap}
 .ru-blocked{color:var(--blocked);font-weight:600}.ru-due{color:var(--due);font-weight:600}.ru-active{color:var(--active)}.tl li.pair{display:block;padding:4px 12px}.tl li.pair::before{display:none}
 .pr{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;padding:4px 0}
 .pr::before{content:'';flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);align-self:center;margin-right:2px}
