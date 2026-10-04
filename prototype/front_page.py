@@ -744,11 +744,13 @@ def context_box(n):
         name = f'<a class="fo" href="{href}">{esc(label)}</a>' if href else esc(label)
         return (f'<li><span class="fn">{name}</span><span class="fp">{esc(note or purpose(path))}</span>'
                 f'<span class="ago">{age}</span></li>')
-    def group(title, rows, link='', helptext=''):
+    def group(title, rows, link='', helptext='', open_=False):  # all start closed (Alex, 2026-10-04)
+        """Each group folds, as Folders & files does (2026-10-04)."""
         if not rows: return ''
         btn, panel = help_q(helptext) if helptext else ('', '')
-        return (f'<div class="hwrap"><div class="gh"><h4>{title}{btn}</h4>{link}</div>{panel}</div>'
-                f'<ul class="fl">{"".join(rows)}</ul>')
+        return (f'<details class="ff"{" open" if open_ else ""}><summary><div class="gh"><h4>{title} '
+                f'<span class="muted">({len(rows)})</span>{btn}</h4>{link}</div></summary>{panel}'
+                f'<ul class="fl">{"".join(rows)}</ul></details>')
 
     # 1. any conversation started at the vault root
     start = [row('Global CLAUDE.md', os.path.expanduser(os.path.join('~', '.claude', 'CLAUDE.md')), 'Your global rules'),
