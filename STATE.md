@@ -51,5 +51,9 @@ updated: 2026-10-03
     - note in the skill that the page mirrors steps 1, 3 and 5 in code
 15. Circle-and-tick as a status cue
     - decoration added 2026-10-03, the same icon on every task row; next is meaning: empty circle open, ticked done
+16. Remote access via Tailscale
+    - Tailscale on PC and phone or laptop; cockpit on `HOST=0.0.0.0` or the Tailscale address, never port-forwarded or public (no login, it writes to Notion)
+    - wake through the Pi; text fallback is Remote Control plus `/session-open`'s brief
+    - first: start the server with the PC (login or the Remote Control wake script); hide buttons that act on the PC (desktop app, VS Code, Open folder) when not browsing from it
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
