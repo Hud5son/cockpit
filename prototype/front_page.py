@@ -826,7 +826,7 @@ def node_page(n):
     objs = render(obj) if obj else '<p class="quiet">None yet.</p>'
     legacy = f'<h3>Done when <span class="old">old shape</span></h3>{render(old)}' if old else ''
     return (f'<div class="anchor"><h1>{f"<span class=h1code>{esc(n.code)}</span>" if n.code else ""}{esc(n.name)}</h1>'
-            f'<p class="meta"><span class="kp kp-{n.kind}">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
+            f'<p class="meta"><span class="kp kp-{n.kind} solid">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
             f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
 
@@ -916,8 +916,9 @@ def child_rows(n, depth=0):
     Only the name indents. An Area row opens in place to its own children (2026-10-04)."""
     rows = ''
     for c in sorted(n.children, key=lambda c: touched(c), reverse=True):
-        name = f'<a class="cname" href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main">{esc(c.name)}</a>'
-        pill = f'<span class="kp kp-{c.kind}">{c.kind}</span>'
+        name = (f'<a class="cname" href="#" hx-get="/view?p={qp(c.rel)}" hx-target="#main" '
+                f'title="{esc(c.name)}">{esc(c.name)}</a>')
+        pill = f'<span class="ncode nc-{c.kind} cbadge" title="{c.kind.title()}">{esc(c.code) or "–"}</span>'
         st = f'<span class="st st-{c.shown_status}">{c.shown_status}</span>'
         if c.kind == 'area' and c.children:
             mid = f'<span class="cnext rus">{rollup(c) or "<span class=ru>nothing below yet</span>"}</span>'
@@ -1117,7 +1118,7 @@ def variant_e(nodes, roots):
             tw = '<span class="tw">▸</span>' if c.children else '<span class="tw blank"></span>'
             sub = f'<ul class="sub">{tree(c.children)}</ul>' if c.children else ''
             out += (f'<li class="it{done}" data-k="{esc(c.rel)}"><div class="nv{done}" hx-get="/view?p={qp(c.rel)}" hx-target="#main">'
-                    f'{tw}<span class="kp kp-{c.kind}">{c.kind[0].upper()}</span><span class="hn">{esc(c.name)}</span>'
+                    f'{tw}<span class="hn" title="{esc(c.name)}"><span class="ncode nc-{c.kind}">{esc(c.code)}</span>{esc(c.name)}</span>'
                     f'<span class="ago">{ago(touched(c))}</span></div>{sub}</li>')
         return out
     nav = ''.join(f'<div class="it anc-it open" data-k="{esc(a.rel)}"><div class="anc" hx-get="/view?p={qp(a.rel)}" hx-target="#main">'
@@ -1213,11 +1214,13 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .vd{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px;max-width:1100px;margin:24px auto}
 .hcol h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
 .hcol ul{list-style:none;margin:0;padding:0}.hcol li{display:flex;align-items:center;gap:10px;padding:9px 0}
-.hn{flex:1;font-size:15px}.ago{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.hn{flex:1;font-size:15px}.ncode{display:inline-block;width:3.4em;font-size:.72em;font-weight:600;letter-spacing:.06em;color:var(--muted)}.ago{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .kp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 0;width:68px;text-align:center;border-radius:10px;border:1px solid var(--line);color:var(--muted)}
 /* type colours, 2026-10-03: area warm stone, project deep blue, workflow teal; outline, text and a faint tint */
 .kp-area{--t:var(--t-area)}.kp-project{--t:var(--t-project)}.kp-workflow{--t:var(--t-workflow)}
 .kp-area,.kp-project,.kp-workflow{border-color:var(--t);color:var(--t);background:color-mix(in srgb,var(--t) 8%,transparent)}
+.kp.solid{background:var(--t);color:var(--surface)}
+.cbadge{flex:0 0 3.6em;box-sizing:border-box;text-align:center;font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--surface);border-radius:4px;padding:2px 0}
 /* E */
 .ve{display:grid;grid-template-columns:300px minmax(0,1fr);gap:40px;align-items:start}
 .ve nav{position:sticky;top:16px;max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}
@@ -1226,7 +1229,7 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .anc:hover,.nv:hover{background:var(--surface)}
 .nv{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;border-radius:4px;font-size:14px}
 .nv.done{opacity:.45}nav li.it.done{display:none}body.show-done nav li.it.done{display:block}
-.ve nav ul.sub{margin:0;padding-left:16px;display:none}.ve nav .it.open>ul.sub{display:block}.anc-it>ul.sub{padding-left:0;margin-bottom:14px}
+.ve nav ul.sub{margin:0 0 0 13px;padding-left:6px;border-left:1px solid var(--line);display:none}.ve nav .anc-it>ul.sub{margin-left:0;padding-left:0;border-left:0}.ve nav .it.open>ul.sub{display:block}.anc-it>ul.sub{padding-left:0;margin-bottom:14px}
 .tw{flex:none;width:14px;display:inline-block;text-align:center;color:var(--muted);font-size:11px;cursor:pointer;transition:transform .12s;user-select:none}
 .tw:hover{color:var(--ink)}.it.open>.nv>.tw,.it.open>.anc>.tw{transform:rotate(90deg)}.tw.blank{cursor:default}
 .anc{display:flex;align-items:center;gap:6px}
@@ -1238,7 +1241,10 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .navpages a.on{background:var(--accent);border-color:var(--accent);color:var(--surface)}.navsep{border:0;border-top:1px solid var(--line);margin:12px 0 14px 8px}
 .navtools button{font:inherit;font-size:11px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:4px;padding:2px 8px;cursor:pointer}
 .navtools button:hover{color:var(--ink);border-color:var(--muted)}
-.nv .kp{width:20px;padding:1px 0;font-size:9px}.nv .hn{font-size:14px}.nv .ago{font-size:12px}
+.nv .kp{width:20px;padding:1px 0;font-size:9px}.nv .hn{font-size:14px}
+/* nav tidy (2026-10-05): one line per node, long names end in an ellipsis (full name on hover); the code takes the type colour */
+.nv .hn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.nv .ncode{font-weight:700;color:var(--surface);text-align:center;border-radius:3px;padding:1px 0;margin-right:7px;width:3.3em;letter-spacing:.04em}.nc-area{background:var(--t-area)}.nc-project{background:var(--t-project)}.nc-workflow{background:var(--t-workflow)}.nv .ago{font-size:12px}
 .htmx-request{opacity:.6}
 .lbl{font-size:.75em;padding:1px 8px;border:1px dashed var(--muted);border-radius:9px;color:var(--muted);margin:0 6px}
 .wfrow b{font-size:15px}.wfkv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;margin:10px 0 0;font-size:14px}
