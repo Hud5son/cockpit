@@ -55,5 +55,11 @@ updated: 2026-10-03
     - Tailscale on PC and phone or laptop; cockpit on `HOST=0.0.0.0` or the Tailscale address, never port-forwarded or public (no login, it writes to Notion)
     - wake through the Pi; text fallback is Remote Control plus `/session-open`'s brief
     - first: start the server with the PC (login or the Remote Control wake script); hide buttons that act on the PC (desktop app, VS Code, Open folder) when not browsing from it
+17. What Claude believes about a node
+    - Alex 2026-10-05: the user can't remember what loaded files say, and they need trimming continually
+    - 1, mechanical: token estimate and age per loaded file, a context budget bar per node, amber past a threshold; flag files loaded every open but untouched 60d+
+    - 2, purpose: each file's first line says what it is for (existing vault rule), shown as the list
+    - 3, beliefs digest: on-demand headless read of exactly what a session loads, as plain claims (rules, settled decisions, open assumptions, stale or contradicting), cached, out of date when a loaded file changes; each claim links its source. Prove on one node Alex knows well. Sharper version of row 6
+    - habit: session-close compares the budget bar with last time and proposes cuts when it grew
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
