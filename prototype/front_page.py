@@ -1,10 +1,4 @@
-"""PROTOTYPE - throwaway. Cockpit front page, three radically different variants.
-
-Question: what should the cockpit's front page look like?
-Three variants of the vault front page, switchable via ?variant=A|B|C, on one route.
-  A  Outline - indented tree with a detail pane (htmx)
-  B  Board   - every node by status, the "what needs me" view
-  C  Map     - nested boxes, the node model drawn as containers
+"""PROTOTYPE - throwaway. Cockpit front page: left nav of nodes, a page per node, an Overview landing page.
 
 Read-only, stdlib only (FastAPI comes with the real build). Run:
     python prototype/front_page.py      then open http://localhost:8765
@@ -287,118 +281,6 @@ def load():
     return nodes, roots
 
 
-# ---------- shared bits ----------
-
-GLYPH = {'area': '<span class="g g-area" title="Area"></span>', 'project': '<span class="g g-project" title="Project"></span>',
-         'workflow': '<span class="g g-workflow" title="Workflow">↻</span>'}
-
-
-def badges(n):
-    out = ''
-    for s in n.sources:
-        tip = s
-        if s == 'notion': tip = 'Notion ' + notion_tip(n)
-        if s == 'repo':
-            ri = n.repo_info or {}
-            tip = f"{n.repo} · " + ('last commit ' + ri['last'] if ri.get('last') else ('no commits yet' if ri.get('exists') else 'not created yet'))
-        out += f'<span class="src src-{s}" title="{esc(tip)}">{s[0].upper()}</span>'
-    return f'<span class="srcs">{out}</span>'
-
-
-def pill(n):
-    s = n.shown_status
-    derived_mark = ' derived' if n.kind == 'area' and not n.own_work else ''
-    return f'<span class="pill p-{s}{derived_mark}" title="{"derived from children" if derived_mark else "authored in STATE"}">{s}</span>'
-
-
-def label(n):
-    code = f'<b>{esc(n.code)}</b> ' if n.code else ''
-    return f'{code}<span class="nm">{esc(n.name)}</span>'
-
-
-def detail(n):
-    rows = ''.join(f'<li class="t t-{t["status"]}"><span class="ts">{t["status"]}</span>{esc(t["title"][:140])}'
-                   f'<span class="src src-{t["source"]}">{t["source"][0].upper()}</span></li>' for t in n.tasks[:14])
-    more = f'<p class="muted">+ {len(n.tasks) - 14} more</p>' if len(n.tasks) > 14 else ''
-    kind = n.kind + (' · own work' if n.own_work else '') + (f' · {n.cadence}' if n.cadence else '')
-    repo = ''
-    if n.repo:
-        ri = n.repo_info or {}
-        repo = f'<p><span class="k">Repo</span>{esc(n.repo)} · ' + (
-            f'last commit {ri["last"]}, {ri["dirty"]} uncommitted' if ri.get('last') else
-            ('no commits yet' if ri.get('exists') else 'not created yet')) + '</p>'
-        if ri.get('last') and n.updated and ri['last'] > n.updated:
-            repo += f'<p class="finding">Finding: repo moved on {ri["last"]}, STATE last updated {n.updated}</p>'
-    kids = ''.join(f'<li>{GLYPH[c.kind]} {label(c)} {pill(c)}</li>' for c in n.children)
-    return f'''<div class="detail">
-<h2>{GLYPH[n.kind]} {label(n)} {pill(n)}</h2>
-<p class="muted">{esc(kind)} · {esc(n.rel)} {badges(n)}</p>
-{f'<p class="aim">{esc(n.aim)}</p>' if n.aim else ''}
-{f'<p><span class="k">Next</span>{esc(n.next)}</p>' if n.next else ''}
-{repo}
-{f'<h3>Tasks <span class="muted">({len(n.tasks)})</span></h3><ul class="tasks">{rows}</ul>{more}' if n.tasks else ''}
-{f'<h3>Children</h3><ul class="kids">{kids}</ul>' if kids else ''}
-</div>'''
-
-
-# ---------- variant A: outline + detail pane ----------
-
-def variant_a(nodes, roots):
-    def tree(ns, depth=0):
-        out = ''
-        for n in ns:
-            out += (f'<div class="row d{depth}" hx-get="/node?p={qp(n.rel)}" hx-target="#pane" tabindex="0">'
-                    f'{GLYPH[n.kind]} {label(n)} {pill(n)} {badges(n)}'
-                    f'<span class="nx">{esc(n.next[:90])}</span></div>')
-            out += tree(n.children, depth + 1)
-        return out
-    first = next((n for n in nodes if n.code == 'VOS'), roots[0])
-    return f'<div class="va"><div class="outline">{tree(roots)}</div><aside id="pane">{detail(first)}</aside></div>'
-
-
-# ---------- variant B: board by status ----------
-
-def variant_b(nodes, roots):
-    cols = ['blocked', 'due', 'active', 'waiting', 'done']
-    work = [n for n in nodes if n.kind != 'area' or n.own_work]
-    out = ''
-    for c in cols:
-        cards = ''
-        for n in [n for n in work if n.shown_status == c]:
-            crumb, p = [], n.parent
-            while p: crumb.insert(0, p.code or p.name); p = p.parent
-            counts = {}
-            for t in n.tasks: counts[t['status']] = counts.get(t['status'], 0) + 1
-            cnt = ' '.join(f'<span class="cnt t-{k}">{v} {k}</span>' for k, v in counts.items() if k != 'done')
-            cards += (f'<div class="card k-{n.kind}" hx-get="/node?p={qp(n.rel)}" hx-target="#modal" tabindex="0">'
-                      f'<div class="crumb">{esc(" › ".join(crumb))}</div>'
-                      f'<div class="ct">{GLYPH[n.kind]} {label(n)} {badges(n)}</div>'
-                      f'<div class="nx">{esc(n.next[:110])}</div><div class="cnts">{cnt}</div></div>')
-        out += f'<section class="col"><h3><span class="pill p-{c}">{c}</span> <span class="muted">({cards.count("class=\"card")})</span></h3>{cards}</section>'
-    return f'<div class="vb">{out}</div><div id="modal" onclick="if(event.target===this)this.innerHTML=\'\'"></div>'
-
-
-# ---------- variant C: map of nested boxes ----------
-
-def variant_c(nodes, roots):
-    def box(n):
-        if n.kind == 'area':
-            own = ''
-            if n.own_work:
-                own = (f'<div class="own"><span class="k">Own work</span>{len(n.tasks)} rows · next: {esc(n.next[:70])}</div>')
-            kids = ''.join(box(c) for c in n.children)
-            return (f'<div class="abox"><div class="ah" hx-get="/node?p={qp(n.rel)}" hx-target="#modal">{GLYPH["area"]} {label(n)} {pill(n)} {badges(n)}</div>'
-                    f'{own}<div class="kids">{kids}</div></div>')
-        open_n = sum(1 for t in n.tasks if t['status'] != 'done')
-        return (f'<div class="tile k-{n.kind} s-{n.shown_status}" hx-get="/node?p={qp(n.rel)}" hx-target="#modal" title="{esc(n.next)}">'
-                f'{GLYPH[n.kind]} {label(n)}<div class="tm">{pill(n)} {badges(n)} <span class="muted">{open_n} open</span></div></div>')
-    legend = (f'<div class="legend">{GLYPH["area"]} Area &nbsp; {GLYPH["project"]} Project &nbsp; {GLYPH["workflow"]} Workflow &nbsp;·&nbsp; '
-              f'<span class="src src-vault">V</span> vault <span class="src src-notion">N</span> Notion <span class="src src-repo">R</span> repo</div>')
-    return f'{legend}<div class="vc">{"".join(box(r) for r in roots)}</div><div id="modal" onclick="if(event.target===this)this.innerHTML=\'\'"></div>'
-
-
-# ---------- variant D: headline, the three anchor areas ----------
-
 GENERATED = {'overview.html', '_overview.html', 'notion.json'}
 
 
@@ -434,18 +316,7 @@ def ago(d):
     return f'{days // 30}mo'
 
 
-def variant_d(nodes, roots):
-    anchors = sorted(roots, key=lambda n: ['NGT', 'PER', 'VOS'].index(n.code) if n.code in ('NGT', 'PER', 'VOS') else 9)
-    cols = ''
-    for a in anchors:
-        rows = ''.join(f'<li><span class="kp kp-{c.kind}">{c.kind}</span><span class="hn">{esc(c.name)}</span>'
-                       f'<span class="ago">{ago(touched(c))}</span></li>'
-                       for c in sorted(a.children, key=lambda c: touched(c), reverse=True))
-        cols += f'<section class="hcol"><h2>{esc(a.name)}</h2><ul>{rows}</ul></section>'
-    return f'<div class="vd">{cols}</div>'
-
-
-# ---------- variant E: left nav + anchor page ----------
+# ---------- front page: left nav + anchor page ----------
 
 STALE_DAYS = 30
 
@@ -544,8 +415,8 @@ def top_page():
         late = d < today
         title = esc(t['title'][:110])
         if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
-        return (f'<li><span class="due{" late" if late else ""}">{"late " if late else ""}{date.fromisoformat(d).strftime("%d %b").lstrip("0")}</span>'
-                f'<span class="tt">{title} <a class="muted" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a></span>'
+        return (f'<li><span class="tt">{title} <a class="muted" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a></span>'
+                f'<span class="due{" late" if late else ""}">{"late " if late else ""}{date.fromisoformat(d).strftime("%d %b").lstrip("0")}</span>'
                 f'<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>')
     due_box = (f'<ul class="tl">{"".join(due_li(*x) for x in dated[:8])}</ul>' if dated else '<p class="quiet">Nothing dated today or late.</p>')
     st = notion_state()
@@ -1149,7 +1020,7 @@ def view(n):
     return node_page(n)
 
 
-def variant_e(nodes, roots):
+def front(nodes, roots):
     anchors = sorted(roots, key=lambda n: ['NGT', 'PER', 'VOS'].index(n.code) if n.code in ('NGT', 'PER', 'VOS') else 9)
     def tree(ns):
         out = ''
@@ -1194,8 +1065,6 @@ let sd=false;try{sd=localStorage.getItem('cockpit.done')==='1'}catch(e){}setDone
             '<div id="modal" onclick="if(event.target===this)this.innerHTML=\'\'"></div>')
 
 
-VARIANTS = {'E': ('Nav + anchor', variant_e), 'D': ('Headline', variant_d), 'A': ('Outline', variant_a), 'B': ('Board', variant_b), 'C': ('Map', variant_c)}
-
 CSS = '''
 :root{--bg:#f6f5f2;--surface:#fff;--ink:#1d1d1b;--muted:#77756f;--line:#e2dfd8;--accent:#2f5d8a;
 --blocked:#c2412d;--due:#b7791f;--active:#2f7d4f;--waiting:#6b7280;--done:#a8a29e;--backlog:#8b8b8b;--next:#2f5d8a;
@@ -1216,44 +1085,10 @@ main{padding:20px 24px 90px}.muted{color:var(--muted)}b{font-weight:600}
 .k{display:inline-block;min-width:56px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-right:8px}
 .finding{background:#fdf2e3;color:#8a4b0f;padding:6px 10px;border-radius:4px}
 .nx{color:var(--muted);font-size:12px}
-/* A */
-.va{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:start}
-.outline{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 0}
-.row{padding:6px 14px;cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;border-left:3px solid transparent}
-.row:hover,.row:focus{background:var(--bg);border-left-color:var(--accent);outline:none}
-.row .nx{flex-basis:100%;padding-left:16px}
-.d1{padding-left:34px}.d2{padding-left:54px}.d3{padding-left:74px}.d4{padding-left:94px}
-aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px 20px;max-height:calc(100vh - 120px);overflow:auto}
 .detail h2{font-size:17px;margin:0 0 4px}.detail h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:18px 0 6px}
-.aim{font-style:italic}.tasks,.kids{list-style:none;padding:0;margin:0}
-.t{display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}.t .src{margin-left:auto;flex:none}
-.ts{flex:none;width:58px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
-.t-blocked .ts{color:var(--blocked)}.t-waiting .ts{color:var(--waiting)}.t-next .ts{color:var(--next)}
-.kids li{padding:3px 0}
-/* B */
-.vb{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;align-items:start}
-.col h3{font-size:13px;margin:0 0 10px}.col .pill{margin-left:0}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:10px;cursor:pointer}
-.card:hover{border-color:var(--accent)}.card.k-workflow{border-left:3px solid var(--accent)}
-.crumb{font-size:11px;color:var(--muted);margin-bottom:2px}.ct{font-size:14px}.card .nx{margin-top:4px}
-.cnts{margin-top:6px}.cnt{font-size:11px;margin-right:6px;color:var(--muted)}.cnt.t-blocked{color:var(--blocked)}.cnt.t-waiting{color:var(--waiting)}
-/* C */
-.legend{font-size:12px;color:var(--muted);margin-bottom:14px}
-.vc{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.abox{border:2px solid var(--line);border-radius:8px;padding:10px;background:color-mix(in srgb,var(--surface) 60%,transparent);flex:1 1 300px}
-.abox .abox{flex:1 1 220px;border-style:dashed}
-.ah{font-size:14px;margin-bottom:8px;cursor:pointer}
-.own{font-size:12px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--vault);border-radius:4px;padding:6px 8px;margin-bottom:8px}
-.abox .kids{display:flex;flex-wrap:wrap;gap:8px}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:170px;flex:1 1 170px;cursor:pointer}
-.tile.k-workflow{border-radius:18px;border-color:var(--accent)}.tile.s-blocked{border-color:var(--blocked);border-width:2px}.tile.s-due{border-color:var(--due);border-width:2px}.tile.s-done{opacity:.55}
-.tile .tm{margin-top:4px}.tile .pill{margin-left:0}
+.aim{font-style:italic}
 #modal:not(:empty){position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;justify-content:center;align-items:flex-start;padding-top:8vh;z-index:5}
 #modal .detail{background:var(--surface);border-radius:8px;padding:18px 22px;width:min(640px,92vw);max-height:80vh;overflow:auto}
-/* D */
-.vd{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px;max-width:1100px;margin:24px auto}
-.hcol h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
-.hcol ul{list-style:none;margin:0;padding:0}.hcol li{display:flex;align-items:center;gap:10px;padding:9px 0}
 .hn{flex:1;font-size:15px}.ncode{display:inline-block;width:3.4em;font-size:.72em;font-weight:600;letter-spacing:.06em;color:var(--muted)}.ago{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .kp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 0;width:68px;text-align:center;border-radius:10px;border:1px solid var(--line);color:var(--muted)}
 /* type colours, 2026-10-03: area warm stone, project deep blue, workflow teal; outline, text and a faint tint */
@@ -1261,7 +1096,7 @@ aside#pane{position:sticky;top:16px;background:var(--surface);border:1px solid v
 .kp-area,.kp-project,.kp-workflow{border-color:var(--t);color:var(--t);background:color-mix(in srgb,var(--t) 8%,transparent)}
 .kp.solid{background:var(--t);color:var(--surface)}
 .cbadge{flex:0 0 3.6em;box-sizing:border-box;text-align:center;font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--surface);border-radius:4px;padding:2px 0}
-/* E */
+/* front page */
 .ve{display:grid;grid-template-columns:300px minmax(0,1fr);gap:40px;align-items:start}
 .ve nav{position:sticky;top:16px;max-height:calc(100vh - 110px);overflow:auto;padding-right:8px}
 .ve nav ul{list-style:none;margin:0 0 18px;padding:0}
@@ -1399,30 +1234,16 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .meta{display:flex;align-items:center;gap:12px;margin:0 0 14px;font-size:13px}
 .objs{margin:0;padding-left:20px}.objs li{padding:6px 0;font-size:15px;line-height:1.5}.olead{font-size:15px;margin:0 0 6px}
 .old{font-size:10px;letter-spacing:.06em;color:var(--due);border:1px solid var(--due);border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:1px}
-/* switcher */
-.switch{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111;color:#fff;border-radius:22px;padding:6px 8px;display:flex;align-items:center;gap:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);font-size:13px;z-index:9}
-.switch a{color:#fff;text-decoration:none;padding:4px 10px;border-radius:14px}.switch a:hover{background:#333}.switch span{min-width:130px;text-align:center}
-@media (max-width:900px){.va,.vb{grid-template-columns:1fr}}
 '''
 
 
-def page(variant):
+def page():
     nodes, roots = load()
-    name, fn = VARIANTS[variant]
-    keys = list(VARIANTS)
-    i = keys.index(variant)
-    prev, nxt = keys[i - 1], keys[(i + 1) % len(keys)]
-    counts = {}
-    for n in nodes:
-        if n.kind != 'area' or n.own_work: counts[n.shown_status] = counts.get(n.shown_status, 0) + 1
-    summary = ' · '.join(f'{v} {k}' for k, v in sorted(counts.items()))
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cockpit</title><script src="https://unpkg.com/htmx.org@2.0.3"></script><style>{CSS}</style></head><body>
-<header><h1><a class="home" href="/" title="Home: Overview">COCKPIT</a></h1>{'' if variant in 'DE' else f'<span class="muted">PROTOTYPE · {len(nodes)} nodes · {summary} · read {datetime.now():%H:%M}</span>'}</header>
-<main>{fn(nodes, roots)}</main>
-<div class="switch"><a href="?variant={prev}">←</a><span>{variant} ({name})</span><a href="?variant={nxt}">→</a></div>
+<header><h1><a class="home" href="/" title="Home: Overview">COCKPIT</a></h1></header>
+<main>{front(nodes, roots)}</main>
 <script>document.addEventListener('keydown',e=>{{if(e.target.closest('input,textarea,[contenteditable]'))return;
-if(e.key==='ArrowLeft')location.search='?variant={prev}';if(e.key==='ArrowRight')location.search='?variant={nxt}';
 if(e.key==='Escape'){{const m=document.getElementById('modal');if(m)m.innerHTML=''}}}});</script>
 </body></html>'''
 
@@ -1472,13 +1293,8 @@ class H(BaseHTTPRequestHandler):
             code = q.get('code', [''])[0].upper()
             n = next((n for n in nodes if (code and n.code == code) or (not code and n.rel == q.get('p', [''])[0])), None)
             body = view(n) if n else '<p>not found</p>'
-        elif u.path == '/node':
-            nodes, _ = load()
-            n = next((n for n in nodes if n.rel == q.get('p', [''])[0]), None)
-            body = detail(n) if n else '<p>not found</p>'
         elif u.path == '/':
-            v = q.get('variant', ['E'])[0].upper()
-            body = page(v if v in VARIANTS else 'E')
+            body = page()
         else:
             self.send_response(404); self.end_headers(); return
         self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
