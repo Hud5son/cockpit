@@ -17,7 +17,7 @@ NOTION_MAP = {'backlog': 'backlog', 'someday': 'backlog', 'not started': 'backlo
               'waiting': 'waiting', 'blocked': 'blocked', 'done': 'done', 'cancelled': 'done'}
 esc = html.escape
 NOTION_PROJECT_MAP = {'on hold': 'waiting', 'not started': 'waiting', 'in progress': 'active', 'ongoing': 'active',
-                      'done': 'done', 'cancelled': 'done'}  # Notion Projects status -> vault status, for comparison only
+                      'done': 'done', 'cancelled': 'retired'}  # Notion Projects status -> vault status, for comparison only
 
 # Notion live, decided 2026-10-03: one pull of Tasks, Projects and Areas, cached, Refresh forces it,
 # last good pull kept and flagged stale if Notion fails. Pull and checks live in the vault's Tools/.
@@ -176,6 +176,10 @@ class Node:
         except ValueError: return False
 
     @property
+    def closed(self):  # done or retired (2026-10-09): needs nothing, hidden by default
+        return self.status in ('done', 'retired')
+
+    @property
     def shown_status(self):
         if self.kind == 'area' and not self.state_txt: return derived(self)  # no STATE, no written status
         return 'due' if self.due and self.status == 'active' else (self.status or 'waiting')
@@ -242,7 +246,7 @@ def split_title(row, detail=''):
 
 
 def derived(n):
-    order = ['blocked', 'due', 'active', 'waiting', 'done']
+    order = ['blocked', 'due', 'active', 'waiting', 'done', 'retired']
     seen = [c.shown_status for c in n.children]
     for s in order:
         if s in seen: return s
@@ -343,7 +347,7 @@ def attention(anchor):
     items = []
     for n in descendants(anchor):
         if n.kind == 'area' and not n.own_work: continue
-        if n.status == 'done': continue
+        if n.closed: continue
         if n.status == 'blocked':
             items.append((0, 'blocked', n, n.blocked_on or n.next))
         elif n.due:
@@ -809,7 +813,7 @@ def label_pill(n):
     return f'<span class="lbl" title="Area label">{esc(lab)}</span>' if lab else ''
 
 
-ROLLUP_ORDER = ('blocked', 'due', 'active', 'waiting')  # done is left out: it needs nothing
+ROLLUP_ORDER = ('blocked', 'due', 'active', 'waiting')  # done and retired are left out: they need nothing
 
 
 def rollup(n):
@@ -1029,9 +1033,9 @@ def front(nodes, roots):
     def tree(ns):
         out = ''
         for c in sorted(ns, key=lambda c: touched(c), reverse=True):
-            done = ' done' if c.status == 'done' else ''
+            done = ' done' if c.closed else ''
             # every child done: arrow only while done nodes show, else it opens onto nothing
-            dk = ' dk' if c.children and all(k.status == 'done' for k in c.children) else ''
+            dk = ' dk' if c.children and all(k.closed for k in c.children) else ''
             tw = f'<span class="tw{dk}">▸</span>' if c.children else '<span class="tw blank"></span>'
             sub = f'<ul class="sub{dk}">{tree(c.children)}</ul>' if c.children else ''
             out += (f'<li class="it{done}" data-k="{esc(c.rel)}"><div class="nv{done}" hx-get="/view?p={qp(c.rel)}" hx-target="#main">'
@@ -1073,7 +1077,7 @@ let sd=false;try{sd=localStorage.getItem('cockpit.done')==='1'}catch(e){}setDone
 
 CSS = '''
 :root{--bg:#f6f5f2;--surface:#fff;--ink:#1d1d1b;--muted:#77756f;--line:#e2dfd8;--accent:#2f5d8a;
---blocked:#c2412d;--due:#b7791f;--active:#2f7d4f;--waiting:#6b7280;--done:#a8a29e;--backlog:#8b8b8b;--next:#2f5d8a;
+--blocked:#c2412d;--due:#b7791f;--active:#2f7d4f;--waiting:#6b7280;--done:#a8a29e;--retired:#a8a29e;--backlog:#8b8b8b;--next:#2f5d8a;
 --vault:#5b4b8a;--notion:#1d1d1b;--repo:#b45309;--t-area:#78716c;--t-project:#2f5d8a;--t-workflow:#0f766e}
 @media (prefers-color-scheme:dark){:root{--bg:#161615;--surface:#1f1f1d;--ink:#ecebe7;--muted:#9a978f;--line:#33322f;--accent:#7fa8d1;--notion:#d6d3cc;--t-area:#a8a29e;--t-project:#7fa8d1;--t-workflow:#5eead4}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,sans-serif}
@@ -1084,7 +1088,7 @@ main{padding:20px 24px 90px}.muted{color:var(--muted)}b{font-weight:600}
 .g-area{border:2px solid var(--ink);border-radius:2px}.g-project{background:var(--ink);border-radius:50%}
 .g-workflow{width:auto;height:auto;font-size:13px;line-height:1;color:var(--accent);font-weight:700}
 .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;color:#fff;background:var(--waiting);margin-left:6px;text-transform:uppercase;letter-spacing:.04em}
-.p-blocked{background:var(--blocked)}.p-due{background:var(--due)}.p-active{background:var(--active)}.p-done{background:var(--done)}
+.p-blocked{background:var(--blocked)}.p-due{background:var(--due)}.p-active{background:var(--active)}.p-done{background:var(--done)}.p-retired{background:var(--retired)}
 .pill.derived{background:transparent!important;color:var(--muted);border:1px dashed var(--muted)}
 .srcs{margin-left:6px}.src{display:inline-block;width:17px;height:17px;line-height:17px;text-align:center;font-size:10px;font-weight:700;border-radius:3px;color:#fff;margin-left:2px}
 .src-vault{background:var(--vault)}.src-notion{background:var(--notion);color:var(--bg)}.src-repo{background:var(--repo)}
