@@ -319,6 +319,7 @@ def ago(d):
 # ---------- front page: left nav + anchor page ----------
 
 STALE_DAYS = 30
+SALES_URL = 'https://app.notion.com/p/Sales-3d63105ce9dd80569dfbe9c0a47a9c8f'  # the Sales page in notion-alex
 
 
 def days_since(d):
@@ -568,7 +569,7 @@ def deals_box(n):
         rows = ''.join(task_li(n, t) for t in d['tasks']) if d['tasks'] else '<li class="quiet nostep">No next step</li>'
         out += (f'<h4><a href="{esc(d["url"])}" target="_blank" rel="noopener">{esc(d["title"])}</a> '
                 f'<span class="muted">{esc(d["stage"])}</span></h4><ul class="tl">{rows}</ul>')
-    return f'<section class="box"><h3>Deals <span class="muted">({len(n.deals)} open)</span></h3>{out}</section>'
+    return f'<section class="box"><h3>Deals <span class="muted">({len(n.deals)} open)</span> <a class="olink" href="{SALES_URL}" target="_blank" rel="noopener">Open in Notion ↗</a></h3>{out}</section>'
 
 
 def sys_pills(n):
