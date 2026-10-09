@@ -723,14 +723,17 @@ def node_page(n):
     txt = read(os.path.join(scaffold, 'NODE.md'))
     aim = n.aim or (section(txt, 'Aim') or '').split('\n')[0]
     obj, old = section(txt, 'Objectives'), None
+    old_head = 'Done when'
     if obj is None:
-        old = section(txt, 'Done when') or section(txt, 'Healthy when')
+        old = section(txt, 'Done when')
+        if old is None:
+            old, old_head = section(txt, 'Healthy when'), 'Healthy when'
     def render(body):
         lead, rows = items(body)
         lis = ''.join(f'<li>{esc(r)}</li>' for r in rows)
         return (f'<p class="olead">{esc(lead)}</p>' if lead else '') + (f'<ol class="objs">{lis}</ol>' if lis else '')
     objs = render(obj) if obj else '<p class="quiet">None yet.</p>'
-    legacy = f'<h3>Done when <span class="old">old shape</span></h3>{render(old)}' if old else ''
+    legacy = f'<h3>{old_head} <span class="old">old shape</span></h3>{render(old)}' if old else ''
     return (f'<div class="anchor"><h1>{f"<span class=h1code>{esc(n.code)}</span>" if n.code else ""}{esc(n.name)}</h1>'
             f'<p class="meta"><span class="kp kp-{n.kind} solid">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
