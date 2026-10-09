@@ -32,6 +32,7 @@ from notion_live import pull as notion_pull, apply_action as notion_apply
 from task_review import review as task_review, SECTIONS as REVIEW_SECTIONS
 import threading, time
 NOTION_TTL = 300
+DEALS_NODE = 'NGT-Sales'  # folder whose page shows open CRM deals
 _notion = {'data': None, 'at': 0.0, 'error': ''}
 _notion_lock = threading.Lock()
 
@@ -62,7 +63,7 @@ def notion_for(url):
     else:
         return None
     return {'pulled': d['pulled'][11:16], 'stale': bool(st['error']), 'project': head,
-            'tasks': [{'task': t['title'], 'status': t['status'], 'due': t['due'], 'url': t['url']} for t in rows]}
+            'tasks': [{'task': t['title'], 'status': t['status'], 'due': t['due'], 'url': t['url'], 'deals': t['deals'], 'meetings': t['meetings']} for t in rows]}
 
 
 def notion_tip(n):
@@ -191,8 +192,22 @@ class Node:
         # Notion's manual order isn't in the API: dated tasks first, soonest first, then as pulled
         for t in sorted((self.notion or {}).get('tasks', []), key=lambda t: (not t.get('due'), t.get('due') or '')):
             out.append({'status': NOTION_MAP.get(t.get('status', '').lower(), 'backlog'), 'title': t.get('task', ''),
-                        'source': 'notion', 'url': t.get('url', ''), 'due': (t.get('due') or '')[:10]})
+                        'source': 'notion', 'url': t.get('url', ''), 'due': (t.get('due') or '')[:10], 'deals': t.get('deals', []), 'meetings': t.get('meetings', [])})
         return out
+
+    @property
+    def deals(self):
+        """Open CRM deals, each with its open linked tasks from any node. NGT-Sales only, read-only (decided 2026-10-08)."""
+        d = notion_state()['data']
+        if os.path.basename(self.folder) != DEALS_NODE or not d: return []
+        out = []
+        for deal in d.get('deals', []):
+            ts = [{'status': NOTION_MAP.get(t['status'].lower(), 'backlog'), 'title': t['title'], 'source': 'notion',
+                   'url': t['url'], 'due': (t['due'] or '')[:10], 'meetings': t['meetings']}
+                  for t in d['tasks'] if deal['id'] in t['deals'] and NOTION_MAP.get(t['status'].lower()) != 'done']
+            ts.sort(key=lambda t: (not t['due'], t['due']))
+            out.append(dict(deal, tasks=ts))
+        return sorted(out, key=lambda x: (bool(x['tasks']), x['tasks'][0]['due'] if x['tasks'] else ''))
 
     @property
     def notion_conflict(self):
@@ -490,6 +505,8 @@ def node_brief(n):
     if n.blocked_on: flags.append(f'blocked: {n.blocked_on}')
     late = [t for t in n.tasks if t.get('due') and t['status'] != 'done' and t['due'] < date.today().isoformat()]
     if late: flags.append(f'{len(late)} late: ' + '; '.join(t['title'][:50] for t in late[:2]))
+    for d in n.deals:
+        if not d['tasks']: flags.append(f'{d["title"]}: no next step')
     for _, k, c, line in (attention(n) if n.kind == 'area' else [])[:4]:
         flags.append(f'{c.name}: {k}')
     lines.append('Needs attention: ' + ('nothing' if not flags else ''))
@@ -611,35 +628,41 @@ def pair_up(rows):
     return out
 
 
+def task_li(n, t, cls=''):
+    title = esc(t['title'][:200])
+    if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
+    stray = (f'<span class="stray" title="Out of place: this node keeps its tasks in {n.task_home.title()}">→ {n.task_home.title()}</span>'
+             if n.is_stray(t) else '')
+    det = t.get('detail', '')
+    if det:
+        title = f'<span class="tt has-det" onclick="this.parentNode.classList.toggle(\'open\')" title="Show detail">{title}<span class="more">…</span></span>'
+        det = f'<div class="det">{esc(det)}</div>'
+    else:
+        title = f'<span class="tt">{title}</span>'  # always one box, so a long title wraps in place
+    due = ''
+    if t.get('due'):
+        late = ' late' if t['due'] < date.today().isoformat() and t['status'] != 'done' else ''
+        try: label = date.fromisoformat(t['due']).strftime('%d %b').lstrip('0')
+        except ValueError: label = t['due']
+        due = f'<span class="due{late}" title="{"Overdue, " if late else ""}due {t["due"]}">{label}</span>'
+    # a task from a meeting links to it (2026-10-08)
+    mtg = ''.join(f'<a class="mtg" href="https://app.notion.com/p/{m}" target="_blank" rel="noopener" title="Open the meeting">Meeting</a>'
+                  for m in t.get('meetings', [])[:1])
+    inner = f'{title}{stray}{due}{mtg}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>{det}'
+    return f'<div class="pr">{inner}</div>' if cls == 'pr' else f'<li>{inner}</li>'
+
+
 def state_box(n):
-    def task_li(t, cls=''):
-        title = esc(t['title'][:200])
-        if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
-        stray = (f'<span class="stray" title="Out of place: this node keeps its tasks in {n.task_home.title()}">→ {n.task_home.title()}</span>'
-                 if n.is_stray(t) else '')
-        det = t.get('detail', '')
-        if det:
-            title = f'<span class="tt has-det" onclick="this.parentNode.classList.toggle(\'open\')" title="Show detail">{title}<span class="more">…</span></span>'
-            det = f'<div class="det">{esc(det)}</div>'
-        else:
-            title = f'<span class="tt">{title}</span>'  # always one box, so a long title wraps in place
-        due = ''
-        if t.get('due'):
-            late = ' late' if t['due'] < date.today().isoformat() and t['status'] != 'done' else ''
-            try: label = date.fromisoformat(t['due']).strftime('%d %b').lstrip('0')
-            except ValueError: label = t['due']
-            due = f'<span class="due{late}" title="{"Overdue, " if late else ""}due {t["due"]}">{label}</span>'
-        inner = f'{title}{stray}{due}<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>{det}'
-        return f'<div class="pr">{inner}</div>' if cls == 'pr' else f'<li>{inner}</li>'
     def ul(rows):
         out, items = '', pair_up(rows)
         for i, (t, c) in enumerate(items):
             if c == 'pa':  # one card, one line per source
-                out += f'<li class="pair" title="Same task in more than one place">{task_li(t, "pr")}{task_li(items[i + 1][0], "pr")}</li>'
+                out += f'<li class="pair" title="Same task in more than one place">{task_li(n, t, "pr")}{task_li(n, items[i + 1][0], "pr")}</li>'
             elif c != 'pb':
-                out += task_li(t)
+                out += task_li(n, t)
         return f'<ul class="tl">{out}</ul>'
     ts = n.tasks
+    if n.deals: ts = [t for t in ts if not t.get('deals')]  # shown under their deal instead
     by = lambda s: [t for t in ts if t['status'] == s]
     out = ''
     nxt = by('next')
@@ -664,6 +687,17 @@ def state_box(n):
           f'Settled at session close.">Notion: {esc(n.notion_conflict)}</span>') if n.notion_conflict else ''
     return (f'<section class="box"><div class="hwrap"><h3>State <span class="st st-{status}">{status}</span>{cf}{sc}{btn}</h3>{panel}</div>'
             f'{out}</section>')
+
+
+def deals_box(n):
+    """Open deals with their linked tasks. A deal with no open task has no next step: that is the slip to catch."""
+    if not n.deals: return ''
+    out = ''
+    for d in n.deals:
+        rows = ''.join(task_li(n, t) for t in d['tasks']) if d['tasks'] else '<li class="quiet nostep">No next step</li>'
+        out += (f'<h4><a href="{esc(d["url"])}" target="_blank" rel="noopener">{esc(d["title"])}</a> '
+                f'<span class="muted">{esc(d["stage"])}</span></h4><ul class="tl">{rows}</ul>')
+    return f'<section class="box"><h3>Deals <span class="muted">({len(n.deals)} open)</span></h3>{out}</section>'
 
 
 def sys_pills(n):
@@ -828,7 +862,7 @@ def node_page(n):
     return (f'<div class="anchor"><h1>{f"<span class=h1code>{esc(n.code)}</span>" if n.code else ""}{esc(n.name)}</h1>'
             f'<p class="meta"><span class="kp kp-{n.kind} solid">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
-            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
+            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{deals_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
 
 
 def runbook_path(n):
@@ -911,6 +945,12 @@ def rollup(n):
     return '<span class="ru">·</span>'.join(f'<span class="ru ru-{s}">{counts[s]} {s}</span>' for s in ROLLUP_ORDER if counts.get(s))
 
 
+def task_count(c):
+    """Open tasks at this node's own level, every source; node-level lines (Blocked on) don't count (2026-10-08)."""
+    k = sum(1 for t in c.tasks if t['status'] != 'done' and not t.get('exempt'))
+    return f'<span class="tcount" title="{k} open task{"s" if k != 1 else ""}">{k}</span>' if k else ''
+
+
 def child_rows(n, depth=0):
     """One flat table: type, name, next (or an Area's roll-up), status, the same columns at every depth.
     Only the name indents. An Area row opens in place to its own children (2026-10-04)."""
@@ -922,11 +962,11 @@ def child_rows(n, depth=0):
         st = f'<span class="st st-{c.shown_status}">{c.shown_status}</span>'
         if c.kind == 'area' and c.children:
             mid = f'<span class="cnext rus">{rollup(c) or "<span class=ru>nothing below yet</span>"}</span>'
-            rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{pill}{name}{mid}{st}</summary>'
+            rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{pill}{name}{mid}{task_count(c)}{st}</summary>'
                      f'<ul class="tl nodes sub">{child_rows(c, depth + 1)}</ul></details></li>')
         else:
             mid = f'<span class="muted cnext nx"><span>{esc(c.next[:120])}</span></span>' if c.next else '<span class="cnext"></span>'
-            rows += f'<li><span class="tw blank"></span>{pill}{name}{mid}{st}</li>'
+            rows += f'<li><span class="tw blank"></span>{pill}{name}{mid}{task_count(c)}{st}</li>'
     return rows
 
 
@@ -1269,7 +1309,7 @@ header h1 a.home{color:inherit;text-decoration:none}header h1 a.home:hover{color
 .topcol .aim{font-size:13px;color:var(--muted);margin:0 0 8px}.topcol .rus{margin:0;flex-wrap:wrap}.topnote{font-size:12px;margin-top:18px}
 @media (max-width:1100px){.topstrip,.topcols{grid-template-columns:1fr}}.anchor h1{font-size:24px;font-weight:600;margin:4px 0 6px}
 .anchor h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:28px 0 8px}
-.quiet{color:var(--muted)}
+.quiet{color:var(--muted)}.mtg{flex:none;font-size:10px;padding:0 6px;border:1px solid var(--line);border-radius:9px;color:var(--muted);text-decoration:none;margin-left:6px}
 .att{list-style:none;margin:0;padding:0}
 .att li{display:flex;gap:14px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer}
 .att li:hover .an{color:var(--accent)}
@@ -1309,6 +1349,7 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .tl li,.tl li:last-child{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0}
 /* task rows: Notion's circle-and-tick, decoration only for now (2026-10-03); masked so it takes the theme's muted colour */
 .tl li::before{content:'';flex:none;width:14px;height:14px;background:var(--muted);align-self:center;margin-right:2px;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat}
+.tcount{flex:none;display:inline-flex;align-items:center;gap:3px;font-size:11px;line-height:1;color:var(--muted);border:1px solid var(--line);border-radius:9px;padding:2px 7px 2px 5px;margin:0 8px 0 auto;align-self:center;min-width:28px;justify-content:center}.nodes .tcount+.st{margin-left:0}.tcount::before{content:'';width:12px;height:12px;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat}
 .tl li{flex-wrap:wrap}.tl li .tt{flex:1 1 0;min-width:0}.tt.has-det{cursor:pointer}.more{color:var(--muted);margin-left:4px}.li-open .more{display:none}
 .det{display:none;flex-basis:100%;font-size:13px;color:var(--muted);padding:6px 0 2px 15px;line-height:1.5}
 .tl li.open .det{display:block}.tl li.open .more{display:none}
@@ -1323,7 +1364,7 @@ a.fo{color:inherit;text-decoration:none}a.fo:hover{color:var(--accent);text-deco
 .tl.nodes li.ar>details>summary{border-radius:4px}
 /* the same hover on task rows: State, Task cleanup, Overview (2026-10-04) */
 .tl:not(.nodes)>li{transition:border-color .12s,background-color .12s}
-.tl:not(.nodes)>li:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--bg))}.tl.nodes .cnext.nx{display:flex;gap:7px;align-items:flex-start}.tl.nodes .cnext.nx::before{content:'';flex:none;width:13px;height:13px;margin-top:3px;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.5'/%3E%3Cpath d='M5.2 8.2l1.9 1.9 3.7-3.9'/%3E%3C/svg%3E") center/contain no-repeat}
+.tl:not(.nodes)>li:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--bg))}.tl.nodes .cnext.nx{display:flex;gap:7px;align-items:flex-start}
 .tl.nodes .cname{flex:0 0 230px;min-width:0;box-sizing:border-box}
 .tl.nodes .st{flex:0 0 64px;box-sizing:border-box;text-align:center;margin-left:auto;align-self:center}.tl.nodes .kp{flex:none}
 .tl.nodes .tw{flex:none;width:12px;color:var(--muted);font-size:12px;text-align:center;display:inline-block;transition:transform .15s}
