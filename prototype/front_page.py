@@ -1026,8 +1026,10 @@ def front(nodes, roots):
         out = ''
         for c in sorted(ns, key=lambda c: touched(c), reverse=True):
             done = ' done' if c.status == 'done' else ''
-            tw = '<span class="tw">▸</span>' if c.children else '<span class="tw blank"></span>'
-            sub = f'<ul class="sub">{tree(c.children)}</ul>' if c.children else ''
+            # every child done: arrow only while done nodes show, else it opens onto nothing
+            dk = ' dk' if c.children and all(k.status == 'done' for k in c.children) else ''
+            tw = f'<span class="tw{dk}">▸</span>' if c.children else '<span class="tw blank"></span>'
+            sub = f'<ul class="sub{dk}">{tree(c.children)}</ul>' if c.children else ''
             out += (f'<li class="it{done}" data-k="{esc(c.rel)}"><div class="nv{done}" hx-get="/view?p={qp(c.rel)}" hx-target="#main">'
                     f'{tw}<span class="hn" title="{esc(c.name)}"><span class="ncode nc-{c.kind}">{esc(c.code)}</span>{esc(c.name)}</span>'
                     f'<span class="ago">{ago(touched(c))}</span></div>{sub}</li>')
@@ -1106,7 +1108,7 @@ main{padding:20px 24px 90px}.muted{color:var(--muted)}b{font-weight:600}
 .nv.done{opacity:.45}nav li.it.done{display:none}body.show-done nav li.it.done{display:block}
 .ve nav ul.sub{margin:0 0 0 13px;padding-left:6px;border-left:1px solid var(--line);display:none}.ve nav .anc-it>ul.sub{margin-left:0;padding-left:0;border-left:0}.ve nav .it.open>ul.sub{display:block}.anc-it>ul.sub{padding-left:0;margin-bottom:14px}
 .tw{flex:none;width:14px;display:inline-block;text-align:center;color:var(--muted);font-size:11px;cursor:pointer;transition:transform .12s;user-select:none}
-.tw:hover{color:var(--ink)}.it.open>.nv>.tw,.it.open>.anc>.tw{transform:rotate(90deg)}.tw.blank{cursor:default}
+body:not(.show-done) nav ul.sub.dk{display:none!important}body:not(.show-done) nav .tw.dk{visibility:hidden;pointer-events:none}.tw:hover{color:var(--ink)}.it.open>.nv>.tw,.it.open>.anc>.tw{transform:rotate(90deg)}.tw.blank{cursor:default}
 .anc{display:flex;align-items:center;gap:6px}
 .navtools{display:flex;gap:6px;margin:0 0 12px 8px}
 .nh{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 6px 8px}
