@@ -796,7 +796,14 @@ def workflow_box(n):
                    f'{esc(str(n.fm.get("runbook")))} ↗</a>') if rb else '<span class="quiet">not set</span>'
         run = (f'<button class="act" hx-get="/wf/run-modal?p={qp(n.rel)}" hx-target="#modal" '
                f'title="Shows where and how to run it">▶ Run</button>')
-        return (f'<section class="box"><h3>Workflow {run}</h3><dl class="wfkv">'
+        # workflow map (2026-10-10): <CODE>_workflow.html in the node root opens in a modal; greyed when missing, a prompt to build one
+        if map_path(n):
+            wmap = (f'<button class="act" hx-get="/wf/map-modal?p={qp(n.rel)}" hx-target="#modal" '
+                    f'title="What this workflow does, as a picture">◫ Workflow map</button>')
+        else:
+            wmap = (f'<button class="act off" disabled title="No {esc(n.code)}_workflow.html in the node root yet">'
+                    f'◫ Workflow map</button>')
+        return (f'<section class="box"><h3>Workflow {run}{wmap}</h3><dl class="wfkv">'
                 f'<dt>Cadence</dt><dd>{esc(n.cadence or "–")}</dd>'
                 f'<dt>Runbook</dt><dd>{rb_html}</dd>'
                 f'<dt>Uses</dt><dd>{"".join(chip(str(u)) for u in uses) or "–"}</dd></dl></section>')
@@ -805,6 +812,11 @@ def workflow_box(n):
         return (f'<section class="box"><h3>Builds a workflow</h3><p><a href="#" hx-get="/view?p={qp(b.replace("/", os.sep))}" '
                 f'hx-target="#main">{esc(b)}</a></p></section>')
     return ''
+
+
+def map_path(n):
+    f = os.path.join(n.folder, f'{n.code}_workflow.html') if n.code else ''
+    return f if f and os.path.isfile(f) else ''
 
 
 def label_pill(n):
@@ -839,13 +851,14 @@ def child_rows(n, depth=0):
                 f'title="{esc(c.name)}">{esc(c.name)}</a>')
         pill = f'<span class="ncode nc-{c.kind} cbadge" title="{c.kind.title()}">{esc(c.code) or "–"}</span>'
         st = f'<span class="st st-{c.shown_status}">{c.shown_status}</span>'
+        cl = ' class="closed"' if c.closed else ''  # done or retired: follows the nav's Show done (2026-10-09)
         if c.kind == 'area' and c.children:
             mid = f'<span class="cnext rus">{rollup(c) or "<span class=ru>nothing below yet</span>"}</span>'
-            rows += (f'<li class="ar"><details><summary><span class="tw">▸</span>{pill}{name}{mid}{task_count(c)}{st}</summary>'
+            rows += (f'<li class="ar{" closed" if c.closed else ""}"><details><summary><span class="tw">▸</span>{pill}{name}{mid}{task_count(c)}{st}</summary>'
                      f'<ul class="tl nodes sub">{child_rows(c, depth + 1)}</ul></details></li>')
         else:
             mid = f'<span class="muted cnext nx"><span>{esc(c.next[:120])}</span></span>' if c.next else '<span class="cnext"></span>'
-            rows += f'<li><span class="tw blank"></span>{pill}{name}{mid}{task_count(c)}{st}</li>'
+            rows += f'<li{cl}><span class="tw blank"></span>{pill}{name}{mid}{task_count(c)}{st}</li>'
     return rows
 
 
@@ -854,7 +867,9 @@ def child_box(n):
     Looks through Areas: each Area row shows counts for everything below it and expands in place."""
     if not n.children: return ''
     return (f'<section class="box"><h3>Child state <span class="muted">({len(n.children)})</span></h3>'
-            f'<ul class="tl nodes">{child_rows(n)}</ul></section>')
+            f'<ul class="tl nodes">{child_rows(n)}</ul>'
+            + ('<p class="quiet allclosed">Everything below is done or retired.</p>' if all(c.closed for c in n.children) else '')
+            + '</section>')
 
 
 # ---------- Workflows: every type: workflow node, details from its own STATE (2026-10-03) ----------
@@ -883,7 +898,62 @@ def workflows_page():
             f'<p class="meta"><span class="muted">Every node with <code>type: workflow</code>. Cadence, runbook and uses come from its STATE. '
             f'Click a row for its page.</span></p>'
             f'<section class="box"><table class="wft"><tr><th>Workflow</th><th>Cadence</th><th>Status</th><th>Uses</th><th>STATE updated</th><th></th></tr>'
-            f'{rows}</table></section></div>')
+            f'{rows}</table></section>{skills_box(nodes)}</div>')
+
+
+# ---------- Skills panel: own skills only, vault and global (prototype, 2026-10-09) ----------
+
+SKILL_ROOTS = (('vault', os.path.join(VAULT, '.claude', 'skills')), ('global', os.path.expanduser('~/.claude/skills')))
+
+
+def skill_meta(txt):
+    """name and description from SKILL.md front matter; description may be folded (>-) over indented lines."""
+    m = re.match(r'---\n(.*?)\n---', txt, re.S)
+    out, key = {}, None
+    for line in (m.group(1).splitlines() if m else []):
+        if key and line[:1] in (' ', '\t'):
+            out[key] = (out[key] + ' ' + line.strip()).strip(); continue
+        k, _, v = line.partition(':')
+        key = k.strip() if k.strip() in ('name', 'description') else None
+        if key: out[key] = '' if v.strip() in ('>-', '>', '|', '|-') else v.strip().strip('"\'')
+    return out
+
+
+def own_skills():
+    skills = []
+    for where, root in SKILL_ROOTS:
+        try: names = sorted(os.listdir(root))
+        except OSError: continue
+        for d in names:
+            f = os.path.join(root, d, 'SKILL.md')
+            if not os.path.isfile(f): continue
+            meta = skill_meta(read(f))
+            desc = meta.get('description', '')
+            first = re.split(r'(?<=[.!?])\s', desc, 1)[0]
+            skills.append({'name': meta.get('name') or d, 'dir': d, 'where': where, 'path': f, 'what': first})
+    return skills
+
+
+def skills_box(nodes):
+    def used_by(sk):
+        out = []
+        for n in nodes:
+            if n.kind != 'workflow': continue
+            uses = n.fm.get('uses')
+            uses = uses if isinstance(uses, list) else [u.strip() for u in str(uses or '').split(',')]
+            rb = str(n.fm.get('runbook', '')).replace('\\', '/')
+            if f'skill {sk["dir"]}' in uses or f'skills/{sk["dir"]}/' in rb: out.append(n)
+        return out
+    rows = ''
+    for sk in own_skills():
+        ub = ''.join(f'<a class="uchip u-conn" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a>' for n in used_by(sk))
+        rows += (f'<tr class="click" hx-get="/open-skill?w={sk["where"]}&d={qp(sk["dir"])}" hx-swap="none" title="Opens the SKILL.md in VS Code">'
+                 f'<td><b>{esc(sk["name"])}</b></td><td><span class="uchip u-skill">{sk["where"]}</span></td>'
+                 f'<td class="muted">{esc(sk["what"][:220])}</td><td onclick="event.stopPropagation()">{ub or "<span class=quiet>–</span>"}</td></tr>')
+    return (f'<h1 style="margin-top:28px">Skills <span class="muted">({rows.count("<tr")})</span></h1>'
+            f'<p class="meta"><span class="muted">Your own skills, from the vault and <code>~/.claude/skills</code>. Plugin skills left out. '
+            f'Click a row to open its SKILL.md. Prototype.</span></p>'
+            f'<section class="box"><table class="wft"><tr><th>Skill</th><th>Where</th><th>What it is for</th><th>Used by</th></tr>{rows}</table></section>')
 
 
 HELP_REVIEW = ('The checks and thresholds are the task-review skill\'s, run on the cockpit\'s Notion pull. '
@@ -1113,7 +1183,7 @@ main{padding:20px 24px 90px}.muted{color:var(--muted)}b{font-weight:600}
 .anc{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:6px 8px;cursor:pointer;border-radius:4px}
 .anc:hover,.nv:hover{background:var(--surface)}
 .nv{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;border-radius:4px;font-size:14px}
-.nv.done{opacity:.45}nav li.it.done{display:none}body.show-done nav li.it.done{display:block}
+body:not(.show-done) .tl.nodes li.closed{display:none}.allclosed{display:none}body:not(.show-done) .allclosed{display:block}.nv.done{opacity:.45}nav li.it.done{display:none}body.show-done nav li.it.done{display:block}
 .ve nav ul.sub{margin:0 0 0 13px;padding-left:6px;border-left:1px solid var(--line);display:none}.ve nav .anc-it>ul.sub{margin-left:0;padding-left:0;border-left:0}.ve nav .it.open>ul.sub{display:block}.anc-it>ul.sub{padding-left:0;margin-bottom:14px}
 .tw{flex:none;width:14px;display:inline-block;text-align:center;color:var(--muted);font-size:11px;cursor:pointer;transition:transform .12s;user-select:none}
 body:not(.show-done) nav ul.sub.dk{display:none!important}body:not(.show-done) nav .tw.dk{visibility:hidden;pointer-events:none}.tw:hover{color:var(--ink)}.it.open>.nv>.tw,.it.open>.anc>.tw{transform:rotate(90deg)}.tw.blank{cursor:default}
@@ -1167,7 +1237,9 @@ header h1 a.home{color:inherit;text-decoration:none}header h1 a.home:hover{color
 .ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
 .sugg{display:block;margin-top:4px;font-size:.92em;cursor:pointer}.sugg input{vertical-align:middle;margin:0 4px 0 0}
 .act{font:inherit;font-size:.85em;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);cursor:pointer}
-.act[disabled]{opacity:.5;cursor:wait}
+.act[disabled]{opacity:.5;cursor:wait}.act.off[disabled]{opacity:.4;cursor:not-allowed}.box h3 .act+.act{margin-right:8px}
+#modal .detail.wmap{width:min(1200px,94vw);height:84vh;max-height:none;display:flex;flex-direction:column}
+.wmap iframe{flex:1;width:100%;border:1px solid var(--line);border-radius:6px;margin-top:10px;background:#fff}
 .ff summary h4,.bl summary h4,.bl summary h3{position:relative}
 .ff summary h4::before,.bl summary h4::before,.bl summary h3::before{content:'▸';position:absolute;left:-13px}
 .ff[open] summary h4::before,.bl[open] summary h4::before,.bl[open] summary h3::before{content:'▾'}
@@ -1275,6 +1347,10 @@ class H(BaseHTTPRequestHandler):
             rb = runbook_path(n) if n else ''
             if rb: subprocess.Popen([VSCODE, rb], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             self.send_response(204 if rb else 404); self.end_headers(); return
+        elif u.path == '/open-skill':  # only a path found by the scan, never one from the query
+            sk = next((k for k in own_skills() if k['where'] == q.get('w', [''])[0] and k['dir'] == q.get('d', [''])[0]), None)
+            if sk: subprocess.Popen([VSCODE, sk['path']], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            self.send_response(204 if sk else 404); self.end_headers(); return
         elif u.path == '/edit-skill':  # Obsidian can't open .claude/ (dot-folder), so VS Code; this one file only
             subprocess.Popen([VSCODE, SKILL_FILE], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             self.send_response(204); self.end_headers(); return
@@ -1294,6 +1370,18 @@ class H(BaseHTTPRequestHandler):
             nodes, _ = load()
             n = next((x for x in nodes if x.rel == q.get('p', [''])[0] and x.kind == 'workflow'), None)
             body = run_modal(n) if n else '<div class="detail"><p>Not a workflow.</p></div>'
+        elif u.path in ('/wf/map-modal', '/wf/map'):  # only a workflow's own <CODE>_workflow.html
+            nodes, _ = load()
+            n = next((x for x in nodes if x.rel == q.get('p', [''])[0] and x.kind == 'workflow'), None)
+            f = map_path(n) if n else ''
+            if not f: self.send_response(404); self.end_headers(); return
+            if u.path == '/wf/map':
+                self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.end_headers()
+                with open(f, 'rb') as fh: self.wfile.write(fh.read())
+                return
+            body = (f'<div class="detail wmap"><h2>{esc(n.name)} <span class="muted">workflow map</span>'
+                    f'<button class="act" style="float:right" onclick="document.getElementById(\'modal\').innerHTML=\'\'">Close</button></h2>'
+                    f'<iframe src="/wf/map?p={qp(n.rel)}" title="Workflow map"></iframe></div>')
         elif u.path == '/workflows':
             body = workflows_page()
         elif u.path == '/task-review':

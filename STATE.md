@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-03
+updated: 2026-10-09
 ---
 
 **Blocked on:** nothing.
@@ -38,6 +38,7 @@ updated: 2026-10-03
 10. CRM in the Notion pull
     - Built 2026-10-08: open Deals (not Won or Lost) in the pull, read-only. NGT-Sales page has a Deals section, each deal with its open linked tasks from any node; those tasks leave the State list. A deal with no open task shows "No next step" and flags in /brief
     - Decided 2026-10-08: deals are not tasks; Tasks link to Deals (relation `Deal`), Next action fields retired; a Deal link is never a home
+    - built 2026-10-08 alongside: Meeting pill on tasks from a meeting, open-task count on child rows
     - left: Companies and Contacts not pulled, no need yet. Per-client pages (Acuiti etc.) only if missed after a week. Proposed
 11. Scripts and MCP wiring list
     - every script that exists (vault `Tools/`, `~/dev` repos, skills), its language and what calls it
@@ -63,5 +64,10 @@ updated: 2026-10-03
     - 2, purpose: each file's first line says what it is for (existing vault rule), shown as the list
     - 3, beliefs digest: on-demand headless read of exactly what a session loads, as plain claims (rules, settled decisions, open assumptions, stale or contradicting), cached, out of date when a loaded file changes; each claim links its source. Prove on one node Alex knows well. Sharper version of row 6
     - habit: session-close compares the budget bar with last time and proposes cuts when it grew
+18. Workflow map in a modal
+    - Alex 2026-10-10: a workflow node carries `ABC_workflow.html` in its root; clicking the workflow in the cockpit opens it in a modal
+    - first case MNE: `MNE_workflow.html` in the MNE node root, named 2026-10-10
+    - built 2026-10-10: "Workflow map" button in the Workflow box, opens the file in a modal; greyed when the file is missing, a prompt to build one (Alex 2026-10-10)
+    - workflows only: maps make sense for workflows, not projects or areas (Alex 2026-10-10)
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
