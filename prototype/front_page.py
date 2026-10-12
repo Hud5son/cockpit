@@ -373,6 +373,8 @@ def node_brief(n):
     """A few lines of plain text: what the cockpit page says, for a chat with no screen (2026-10-03)."""
     head = f'{n.code} – {n.name} · {n.kind} · {n.shown_status}' + (f' · {n.cadence}' if n.cadence else '')
     lines = [head, f'Next: {n.next or "nothing set"}']
+    oc = node_outcomes(n)  # the rule of three, 2026-10-12: none means not in focus this week
+    lines.append('Outcomes: ' + ('; '.join(f'{lv}: {t}{" (done)" if tk else ""}' for lv, t, tk, _ in oc) if oc else 'none name this node, not in focus'))
     flags = []
     if n.notion_conflict: flags.append(f'vault says {n.status}, Notion says {n.notion_conflict}')
     if n.due: flags.append(f'due: {n.cadence}, last run {ago(n.updated)} ago')
@@ -408,6 +410,103 @@ def overview_brief():
     return '\n'.join(lines)
 
 
+# ---------- rule of three (VOS row 27, 2026-10-12): read from Daily Notes, never stored ----------
+
+DAILY = os.path.join(VAULT, 'Daily Notes')
+PROCEDURE = os.path.join(VAULT, 'Vault_OS', 'Rule of Three - Procedure.md')
+
+
+def note_section(path, heading):
+    """Numbered items under a ### heading as (text, ticked); a blank or [CODE]-only item counts as empty."""
+    m = re.search(r'^###\s+' + re.escape(heading) + r'\s*\n(.*?)(?=^###\s|\Z)', read(path), re.M | re.S)
+    if not m: return []
+    out = []
+    for line in re.findall(r'^\d+\.[ \t]*(.*)$', m.group(1), re.M):
+        t = re.match(r'\[([ xX])\]\s*(.*)', line.strip())
+        ticked, line = (t.group(1) != ' ', t.group(2)) if t else (False, line.strip())
+        if line and re.sub(r'\[CODE\]', '', line).strip(): out.append((line, ticked))
+    return out
+
+
+def reflection_done(path, first='Landed'):
+    m = re.search(r'\*\*' + first + r':\*\*(.*)', read(path))
+    return bool(m and m.group(1).strip())
+
+
+def three_paths():
+    from datetime import timedelta
+    today = date.today()
+    mon = today - timedelta(days=today.weekday())
+    daily = next((os.path.join(DAILY, f) for f in (f'{today} {today:%a}.md', f'{today}.md')
+                  if os.path.isfile(os.path.join(DAILY, f))), os.path.join(DAILY, f'{today} {today:%a}.md'))
+    return today, mon, daily, os.path.join(DAILY, f'{mon} – Weekly.md'), os.path.join(DAILY, f'{today:%Y-%m} Monthly.md')
+
+
+def node_outcomes(n):
+    """(level, text, ticked, note path) for every outcome naming this node, today, this week and this month."""
+    if not n.code: return []
+    today, mon, daily, weekly, monthly = three_paths()
+    out = []
+    for label, path, heading in (('Today', daily, "Today's three"), ('Week', weekly, 'Three'), (f'{today:%B}', monthly, 'Three')):
+        for o, ticked in note_section(path, heading):
+            m = re.match(r'\[([A-Z]{2,4})\]\s*(.*)', o)
+            if m and m.group(1) == n.code: out.append((label, m.group(2), ticked, path))
+    return out
+
+
+def outcomes_box(n):
+    """Outcomes that name this node, today, this week and this month (2026-10-12). Nothing shown when none do."""
+    if not n.code: return ''
+    today, mon, daily, weekly, monthly = three_paths()
+    rows = ''
+    for label, path, heading in (('Today', daily, "Today's three"), ('Week', weekly, 'Three'), (f'{today:%B}', monthly, 'Three')):
+        for o, ticked in note_section(path, heading):
+            m = re.match(r'\[([A-Z]{2,4})\]\s*(.*)', o)
+            if m and m.group(1) == n.code:
+                rows += (f'<li{" class=t3done" if ticked else ""}><a class="cadchip" href="{obs_href(path)}" title="Open the note">{esc(label)}</a>'
+                         f'<span class="tt">{esc(m.group(2))}</span></li>')
+    return f'<section class="box"><h3>Outcomes</h3><ul class="tl t3l">{rows}</ul></section>' if rows else ''
+
+
+def three_strip():
+    from datetime import timedelta
+    today = date.today()
+    mon = today - timedelta(days=today.weekday())
+    daily = next((os.path.join(DAILY, f) for f in (f'{today} {today:%a}.md', f'{today}.md')
+                  if os.path.isfile(os.path.join(DAILY, f))), os.path.join(DAILY, f'{today} {today:%a}.md'))
+    weekly = os.path.join(DAILY, f'{mon} – Weekly.md')
+    monthly = os.path.join(DAILY, f'{today:%Y-%m} Monthly.md')
+    d3, w3, m3 = note_section(daily, "Today's three"), note_section(weekly, 'Three'), note_section(monthly, 'Three')
+    due = []
+    if not m3: due.append(('Month\'s three', monthly))
+    if not w3: due.append(('Monday vision', weekly))
+    if not d3: due.append(('Today\'s three', daily))
+    if today.weekday() >= 4 and os.path.isfile(weekly) and not reflection_done(weekly): due.append(('Friday reflection', weekly))
+    if (today + timedelta(days=1)).month != today.month and not reflection_done(monthly): due.append(('Month-end reflection', monthly))
+    nodes, _ = load()
+    by_code = {n.code: n for n in nodes if n.code}
+    def item(it):  # a leading [ABC] becomes the node pill, as on the task rows; ticked in Obsidian shows done
+        text, ticked = it
+        li = '<li class="t3done">' if ticked else '<li>'
+        m = re.match(r'\[([A-Z]{2,4})\]\s*(.*)', text)
+        n = by_code.get(m.group(1)) if m else None
+        if not n: return f'{li}<span class="tt">{esc(text)}</span></li>'
+        pill = (f'<a class="ncode nc-{n.kind} cbadge" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main" '
+                f'title="{esc(n.name)}">{esc(n.code)}</a>')
+        return f'{li}{pill}<span class="tt">{esc(m.group(2))}</span></li>'
+    def col(label, items, path, cls='', write='Write them'):
+        body = (f'<ul class="tl t3l">{"".join(item(i) for i in items)}</ul>' if items else
+                f'<p class="t3empty">Not written yet. <a href="{obs_href(path)}">{write} →</a></p>')
+        cnt = f' <span class="t3cnt">{sum(t for _, t in items)}/{len(items)}</span>' if items else ''
+        return f'<div class="t3col{cls}"><h4><a href="{obs_href(path)}">{label}</a>{cnt}</h4>{body}</div>'
+    chips = ''.join(f'<a class="duechip3" href="{obs_href(p)}">{esc(k)} due</a>' for k, p in due)
+    return (f'<section class="box three"><h3>Outcomes – Rule of Three {chips}'
+            f'<a class="olink t3proc" href="{obs_href(PROCEDURE)}">How it works</a></h3>'
+            f'<div class="t3">{col(f"Today, {today:%a %d %b}".replace(" 0", " "), d3, daily, " t3today", "Write today's three")}'
+            f'{col(f"Week of {mon:%d %b}".replace(" 0", " "), w3, weekly, write="Write the Monday vision")}'
+            f'{col(f"{today:%B}", m3, monthly, write="Write the month's three")}</div></section>')
+
+
 def top_page():
     """The landing page (2026-10-03): where everything stands on one screen. A strip of what is dated today or late
     plus the task review headline, then one column per anchor. All worked out on read."""
@@ -420,9 +519,14 @@ def top_page():
         late = d < today
         title = esc(t['title'][:110])
         if t.get('url'): title = f'<a href="{esc(t["url"])}" target="_blank" rel="noopener">{title}</a>'
-        return (f'<li><span class="tt">{title} <a class="muted" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a></span>'
+        # node pill first, opens the node; the source mark links to the Notion task when there is one (2026-10-11)
+        pill = (f'<a class="ncode nc-{n.kind} cbadge" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main" '
+                f'title="{esc(n.name)}">{esc(n.code) or "–"}</a>')
+        mark = f'<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span>'
+        if t.get('url'): mark = f'<a class="smlink" href="{esc(t["url"])}" target="_blank" rel="noopener" title="Open in Notion">{mark}</a>'
+        return (f'<li>{pill}<span class="tt">{title}</span>'
                 f'<span class="due{" late" if late else ""}">{"late " if late else ""}{date.fromisoformat(d).strftime("%d %b").lstrip("0")}</span>'
-                f'<span class="sm sm-{t["source"]}" title="{t["source"]}">{t["source"][0].upper()}</span></li>')
+                f'{mark}</li>')
     due_box = (f'<ul class="tl">{"".join(due_li(*x) for x in dated[:8])}</ul>' if dated else '<p class="quiet">Nothing dated today or late.</p>')
     st = notion_state()
     if st['data']:
@@ -447,8 +551,8 @@ def top_page():
                  f'<h3>Workflows due</h3>' + (''.join(f'<p><a href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.name)}</a> '
                  f'<span class="muted">{esc(n.cadence)}, last {ago(n.updated)} ago</span></p>' for n in wf_due) or '<p class="quiet">None due.</p>') +
                  f'<h3>Notion Next</h3><p>{nxt} task{"s" if nxt != 1 else ""} in Next</p></section>')
-    return (f'<div class="top"><h1>Overview</h1>'
-            f'<div class="topstrip"><section class="box"><h3>Dated today or late <span class="muted">({len(dated)})</span></h3>{due_box}</section>'
+    return (f'<div class="top"><h1>Overview</h1>{three_strip()}'
+            f'<div class="topstrip"><section class="box"><h3>Tasks dated today or late <span class="muted">({len(dated)})</span></h3>{due_box}</section>'
             f'<section class="box"><h3>Task cleanup</h3>{review}</section></div>'
             f'<div class="topcols">{cols}</div>'
             f'<p class="muted topnote">"Untouched" reads file dates, so the 2026-10-03 renames and type sweep make every node look fresh until early November.</p></div>')
@@ -741,7 +845,7 @@ def node_page(n):
     return (f'<div class="anchor"><h1>{f"<span class=h1code>{esc(n.code)}</span>" if n.code else ""}{esc(n.name)}</h1>'
             f'<p class="meta"><span class="kp kp-{n.kind} solid">{n.kind}</span>{label_pill(n)}{sys_pills(n)}<span class="muted">touched {ago(touched(n))}{" ago" if ago(touched(n)) not in ("today", "never") else ""}</span></p>'
             f'{f"<p class=aim>{esc(aim)}</p>" if aim else ""}'
-            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{state_box(n)}{deals_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
+            f'<section class="box"><h3>Objectives</h3>{objs}</section>{legacy}{outcomes_box(n)}{state_box(n)}{deals_box(n)}{workflow_box(n)}{child_box(n)}{context_box(n)}</div>')
 
 
 def runbook_path(n):
@@ -1042,6 +1146,9 @@ def apply_ticked(ids):
     return f'Applied {done}.' + (f' Failed {len(failed)}: ' + '; '.join(failed) if failed else '')
 
 
+NODE_NEXT_CAP = 3  # the rule of three (VOS row 27); counts Notion and STATE Next together
+
+
 def task_review_page(force=False, msg=''):
     if force: _suggest.update(pulled='', rows={}, error='')  # Rerun starts clean; the 5-minute cache refresh doesn't
     st = notion_state(force)
@@ -1072,7 +1179,12 @@ def task_review_page(force=False, msg=''):
         fs = r['findings'].get(key, [])
         rows = [f'<li>{esc(d)}</li>' for d in (r['drift'] if key == 'drift' else [])] + [li(f) for f in fs]
         out += fold(label, rows, open_=any(f['id'] in sug for f in fs))
-    out += fold('Overload', [f'<li>{esc(o)}</li>' for o in r['overload']])
+    # per node, Notion and STATE together (2026-10-11): more than NODE_NEXT_CAP in Next, reported only
+    nodes, _ = load()
+    heavy = sorted(((sum(t['status'] == 'next' for t in n.tasks), n) for n in nodes if not n.closed), key=lambda x: -x[0])
+    per_node = [f'<li><a href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main">{esc(n.code or n.name)}</a> '
+                f'<span class="muted">{k} in Next, cap {NODE_NEXT_CAP} ({esc(n.name)})</span></li>' for k, n in heavy if k > NODE_NEXT_CAP]
+    out += fold('Overload', [f'<li>{esc(o)}</li>' for o in r['overload']] + per_node)
     tip = f'Runs headless Claude Code on {CLAUDE_ACCOUNT} (your subscription, not the API). Read-only, about a minute.'
     actions = (f'<button class="act" hx-post="/task-review/suggest" hx-target="#main" hx-disabled-elt="this" title="{esc(tip)}">'
                f'Suggest actions</button><span class="htmx-indicator muted"> Claude is thinking, about a minute…</span>')
@@ -1237,7 +1349,7 @@ header h1 a.home{color:inherit;text-decoration:none}header h1 a.home:hover{color
 .ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
 .sugg{display:block;margin-top:4px;font-size:.92em;cursor:pointer}.sugg input{vertical-align:middle;margin:0 4px 0 0}
 .act{font:inherit;font-size:.85em;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);cursor:pointer}
-.act[disabled]{opacity:.5;cursor:wait}.act.off[disabled]{opacity:.4;cursor:not-allowed}.box h3 .act+.act{margin-right:8px}
+.act[disabled]{opacity:.5;cursor:wait}.box.three{margin-bottom:20px}.t3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.t3col{min-width:0;padding-top:10px}.t3col h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.t3col h4 a{color:inherit;text-decoration:none}.t3col h4 a:hover{color:var(--accent)}.t3l li::before{display:none}.t3l li,.t3l li:last-child{margin:0 0 8px;align-items:center;line-height:1.4}.t3today{background:color-mix(in srgb,var(--accent) 6%,transparent);border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line));border-radius:8px;padding:10px 12px 2px}.t3today h4{color:var(--accent)}.t3done .tt{color:var(--muted);text-decoration:line-through}.t3done::after{content:'✓';color:var(--active);font-weight:700;margin-left:auto}.t3cnt{font-weight:600;color:var(--ink);margin-left:6px}.cadchip{flex:none;min-width:5.2em;text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:10px;padding:1px 8px;text-decoration:none}.t3empty{margin:6px 0 12px;font-size:14px;color:var(--muted)}.t3empty a{font-weight:600}.duechip3{display:inline-block;margin-left:8px;font-size:11px;text-transform:none;letter-spacing:0;color:var(--surface);background:var(--due);border-radius:10px;padding:1px 8px;text-decoration:none;vertical-align:1px}.t3proc{float:right;font-size:12px;text-transform:none;letter-spacing:0}@media (max-width:900px){.t3{grid-template-columns:1fr}}.tl a.cbadge{text-decoration:none;align-self:center;color:var(--surface);font-weight:700;order:-1}.smlink{text-decoration:none}.smlink:hover .sm{outline:2px solid var(--accent)}.act.off[disabled]{opacity:.4;cursor:not-allowed}.box h3 .act+.act{margin-right:8px}
 #modal .detail.wmap{width:min(1200px,94vw);height:84vh;max-height:none;display:flex;flex-direction:column}
 .wmap iframe{flex:1;width:100%;border:1px solid var(--line);border-radius:6px;margin-top:10px;background:#fff}
 .ff summary h4,.bl summary h4,.bl summary h3{position:relative}

@@ -69,5 +69,8 @@ updated: 2026-10-09
     - first case MNE: `MNE_workflow.html` in the MNE node root, named 2026-10-10
     - built 2026-10-10: "Workflow map" button in the Workflow box, opens the file in a modal; greyed when the file is missing, a prompt to build one (Alex 2026-10-10)
     - workflows only: maps make sense for workflows, not projects or areas (Alex 2026-10-10)
+19. Code review of the action routes
+    - Proposed 2026-10-12, Alex: leave for now. Notion Apply, the GET routes that open Explorer or VS Code (any page in the browser can call them), no login with HOST=0.0.0.0; due before row 16 (Tailscale)
+    - full design review as the first step of row 7, the real build
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.
