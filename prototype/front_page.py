@@ -449,7 +449,7 @@ def node_outcomes(n):
     out = []
     for label, path, heading in (('Today', daily, "Today's three"), ('Week', weekly, 'Three'), (f'{today:%B}', monthly, 'Three')):
         for o, ticked in note_section(path, heading):
-            m = re.match(r'\[([A-Z]{2,4})\]\s*(.*)', o)
+            m = re.match(r'\[([A-Z][A-Z0-9]{1,3})\]\s*(.*)', o)
             if m and m.group(1) == n.code: out.append((label, m.group(2), ticked, path))
     return out
 
@@ -461,7 +461,7 @@ def outcomes_box(n):
     rows = ''
     for label, path, heading in (('Today', daily, "Today's three"), ('Week', weekly, 'Three'), (f'{today:%B}', monthly, 'Three')):
         for o, ticked in note_section(path, heading):
-            m = re.match(r'\[([A-Z]{2,4})\]\s*(.*)', o)
+            m = re.match(r'\[([A-Z][A-Z0-9]{1,3})\]\s*(.*)', o)
             if m and m.group(1) == n.code:
                 rows += (f'<li{" class=t3done" if ticked else ""}><a class="cadchip" href="{obs_href(path)}" title="Open the note">{esc(label)}</a>'
                          f'<span class="tt">{esc(m.group(2))}</span></li>')
@@ -488,7 +488,7 @@ def three_strip():
     def item(it):  # a leading [ABC] becomes the node pill, as on the task rows; ticked in Obsidian shows done
         text, ticked = it
         li = '<li class="t3done">' if ticked else '<li>'
-        m = re.match(r'\[([A-Z]{2,4})\]\s*(.*)', text)
+        m = re.match(r'\[([A-Z][A-Z0-9]{1,3})\]\s*(.*)', text)
         n = by_code.get(m.group(1)) if m else None
         if not n: return f'{li}<span class="tt">{esc(text)}</span></li>'
         pill = (f'<a class="ncode nc-{n.kind} cbadge" href="#" hx-get="/view?p={qp(n.rel)}" hx-target="#main" '
@@ -677,7 +677,7 @@ def deals_box(n):
         rows = ''.join(task_li(n, t) for t in d['tasks']) if d['tasks'] else '<li class="quiet nostep">No next step</li>'
         out += (f'<h4><a href="{esc(d["url"])}" target="_blank" rel="noopener">{esc(d["title"])}</a> '
                 f'<span class="muted">{esc(d["stage"])}</span></h4><ul class="tl">{rows}</ul>')
-    return f'<section class="box"><h3>Deals <span class="muted">({len(n.deals)} open)</span> <a class="olink" href="{SALES_URL}" target="_blank" rel="noopener">Open in Notion ↗</a></h3>{out}</section>'
+    return f'<section class="box"><h3>CRM – Deals <span class="muted">({len(n.deals)} open)</span> <a class="olink" href="{SALES_URL}" target="_blank" rel="noopener">Open in Notion ↗</a></h3>{out}</section>'
 
 
 def sys_pills(n):
@@ -1238,9 +1238,19 @@ def front(nodes, roots):
     js = '''<script>(function(){
 const KEY='cockpit.open';let open;try{open=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){open=null}
 const items=()=>document.querySelectorAll('nav .it');
-const nd=new URLSearchParams(location.search).get('node');
-if(nd)document.addEventListener('DOMContentLoaded',()=>{htmx.ajax('GET','/view?code='+encodeURIComponent(nd),'#main');
-document.querySelectorAll('.navpages a').forEach(a=>a.classList.remove('on'))});
+const sp=new URLSearchParams(location.search),nd=sp.get('node'),np=sp.get('p'),pg=sp.get('page');
+// reopen what the address says, so a refresh keeps its place (2026-10-12)
+const PAGES={'task-review':'/task-review','workflows':'/workflows'};
+const start=nd?'/view?code='+encodeURIComponent(nd):np?'/view?p='+encodeURIComponent(np):PAGES[pg];
+if(start)document.addEventListener('DOMContentLoaded',()=>{htmx.ajax('GET',start,'#main');
+document.querySelectorAll('.navpages a').forEach(a=>a.classList.toggle('on',!!pg&&a.getAttribute('hx-get')===PAGES[pg]))});
+// and keep the address in step with what #main shows
+document.addEventListener('htmx:afterSwap',e=>{if(e.detail.target.id!=='main')return;
+const u=new URL(e.detail.pathInfo.requestPath,location.origin),q=u.searchParams;let a=null;
+if(u.pathname==='/view')a=q.get('code')?'?node='+encodeURIComponent(q.get('code')):'?p='+encodeURIComponent(q.get('p')||'');
+else if(u.pathname==='/top')a='/';
+else{const k=Object.keys(PAGES).find(k=>PAGES[k]===u.pathname);if(k)a='?page='+k}
+if(a)history.replaceState(null,'',a)});
 document.addEventListener('click',e=>{const pg=e.target.closest('.navpages a'),nd=e.target.closest('nav .nv, nav .anc');
 if(pg||nd)document.querySelectorAll('.navpages a').forEach(a=>a.classList.toggle('on',a===pg))});
 function save(){try{localStorage.setItem(KEY,JSON.stringify([...items()].filter(i=>i.classList.contains('open')).map(i=>i.dataset.k)))}catch(e){}}
