@@ -439,7 +439,7 @@ def three_paths():
     mon = today - timedelta(days=today.weekday())
     daily = next((os.path.join(DAILY, f) for f in (f'{today} {today:%a}.md', f'{today}.md')
                   if os.path.isfile(os.path.join(DAILY, f))), os.path.join(DAILY, f'{today} {today:%a}.md'))
-    return today, mon, daily, os.path.join(DAILY, f'{mon} – Weekly.md'), os.path.join(DAILY, f'{today:%Y-%m} Monthly.md')
+    return today, mon, daily, os.path.join(DAILY, f'{mon} – Weekly.md'), os.path.join(DAILY, f'{today:%Y-%m} – Monthly.md')
 
 
 def node_outcomes(n):
@@ -475,7 +475,7 @@ def three_strip():
     daily = next((os.path.join(DAILY, f) for f in (f'{today} {today:%a}.md', f'{today}.md')
                   if os.path.isfile(os.path.join(DAILY, f))), os.path.join(DAILY, f'{today} {today:%a}.md'))
     weekly = os.path.join(DAILY, f'{mon} – Weekly.md')
-    monthly = os.path.join(DAILY, f'{today:%Y-%m} Monthly.md')
+    monthly = os.path.join(DAILY, f'{today:%Y-%m} – Monthly.md')
     d3, w3, m3 = note_section(daily, "Today's three"), note_section(weekly, 'Three'), note_section(monthly, 'Three')
     due = []
     if not m3: due.append(('Month\'s three', monthly))
@@ -500,7 +500,10 @@ def three_strip():
         cnt = f' <span class="t3cnt">{sum(t for _, t in items)}/{len(items)}</span>' if items else ''
         return f'<div class="t3col{cls}"><h4><a href="{obs_href(path)}">{label}</a>{cnt}</h4>{body}</div>'
     chips = ''.join(f'<a class="duechip3" href="{obs_href(p)}">{esc(k)} due</a>' for k, p in due)
-    return (f'<section class="box three"><h3>Outcomes – Rule of Three {chips}'
+    tip = ('Create today\'s note first in Obsidian (Ctrl+P, "Open today\'s daily note"); it makes the week\'s and month\'s notes too.\n'
+           'Names must match exactly or the column shows empty:\n'
+           f'{today} {today:%a}\n{mon} – Weekly\n{today:%Y-%m} – Monthly')
+    return (f'<section class="box three"><h3>Outcomes – Rule of Three <span class="t3tip" title="{esc(tip)}">ⓘ</span>{chips}'
             f'<a class="olink t3proc" href="{obs_href(PROCEDURE)}">How it works</a></h3>'
             f'<div class="t3">{col(f"Today, {today:%a %d %b}".replace(" 0", " "), d3, daily, " t3today", "Write today's three")}'
             f'{col(f"Week of {mon:%d %b}".replace(" 0", " "), w3, weekly, write="Write the Monday vision")}'
@@ -1359,7 +1362,7 @@ header h1 a.home{color:inherit;text-decoration:none}header h1 a.home:hover{color
 .ff summary{list-style:none;cursor:pointer;display:block}.ff summary::-webkit-details-marker{display:none}
 .sugg{display:block;margin-top:4px;font-size:.92em;cursor:pointer}.sugg input{vertical-align:middle;margin:0 4px 0 0}
 .act{font:inherit;font-size:.85em;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);cursor:pointer}
-.act[disabled]{opacity:.5;cursor:wait}.box.three{margin-bottom:20px}.t3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.t3col{min-width:0;padding-top:10px}.t3col h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.t3col h4 a{color:inherit;text-decoration:none}.t3col h4 a:hover{color:var(--accent)}.t3l li::before{display:none}.t3l li,.t3l li:last-child{margin:0 0 8px;align-items:center;line-height:1.4}.t3today{background:color-mix(in srgb,var(--accent) 6%,transparent);border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line));border-radius:8px;padding:10px 12px 2px}.t3today h4{color:var(--accent)}.t3done .tt{color:var(--muted);text-decoration:line-through}.t3done::after{content:'✓';color:var(--active);font-weight:700;margin-left:auto}.t3cnt{font-weight:600;color:var(--ink);margin-left:6px}.cadchip{flex:none;min-width:5.2em;text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:10px;padding:1px 8px;text-decoration:none}.t3empty{margin:6px 0 12px;font-size:14px;color:var(--muted)}.t3empty a{font-weight:600}.duechip3{display:inline-block;margin-left:8px;font-size:11px;text-transform:none;letter-spacing:0;color:var(--surface);background:var(--due);border-radius:10px;padding:1px 8px;text-decoration:none;vertical-align:1px}.t3proc{float:right;font-size:12px;text-transform:none;letter-spacing:0}@media (max-width:900px){.t3{grid-template-columns:1fr}}.tl a.cbadge{text-decoration:none;align-self:center;color:var(--surface);font-weight:700;order:-1}.smlink{text-decoration:none}.smlink:hover .sm{outline:2px solid var(--accent)}.act.off[disabled]{opacity:.4;cursor:not-allowed}.box h3 .act+.act{margin-right:8px}
+.act[disabled]{opacity:.5;cursor:wait}header .helplink{margin-left:18px;font-size:13px;color:var(--accent);text-decoration:none}header .helplink:hover{text-decoration:underline}.box.three{margin-bottom:20px}.t3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.t3col{min-width:0;padding-top:10px}.t3col h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.t3col h4 a{color:inherit;text-decoration:none}.t3col h4 a:hover{color:var(--accent)}.t3l li::before{display:none}.t3l li,.t3l li:last-child{margin:0 0 8px;align-items:center;line-height:1.4}.t3today{background:color-mix(in srgb,var(--accent) 6%,transparent);border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line));border-radius:8px;padding:10px 12px 2px}.t3today h4{color:var(--accent)}.t3done .tt{color:var(--muted);text-decoration:line-through}.t3done::after{content:'✓';color:var(--active);font-weight:700;margin-left:auto}.t3cnt{font-weight:600;color:var(--ink);margin-left:6px}.cadchip{flex:none;min-width:5.2em;text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:10px;padding:1px 8px;text-decoration:none}.t3empty{margin:6px 0 12px;font-size:14px;color:var(--muted)}.t3empty a{font-weight:600}.duechip3{display:inline-block;margin-left:8px;font-size:11px;text-transform:none;letter-spacing:0;color:var(--surface);background:var(--due);border-radius:10px;padding:1px 8px;text-decoration:none;vertical-align:1px}.t3tip{cursor:help;color:var(--muted);font-weight:400;margin-right:4px}.t3proc{float:right;font-size:12px;text-transform:none;letter-spacing:0}@media (max-width:900px){.t3{grid-template-columns:1fr}}.tl a.cbadge{text-decoration:none;align-self:center;color:var(--surface);font-weight:700;order:-1}.smlink{text-decoration:none}.smlink:hover .sm{outline:2px solid var(--accent)}.act.off[disabled]{opacity:.4;cursor:not-allowed}.box h3 .act+.act{margin-right:8px}
 #modal .detail.wmap{width:min(1200px,94vw);height:84vh;max-height:none;display:flex;flex-direction:column}
 .wmap iframe{flex:1;width:100%;border:1px solid var(--line);border-radius:6px;margin-top:10px;background:#fff}
 .ff summary h4,.bl summary h4,.bl summary h3{position:relative}
@@ -1445,7 +1448,7 @@ def page():
     nodes, roots = load()
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cockpit</title><script src="https://unpkg.com/htmx.org@2.0.3"></script><style>{CSS}</style></head><body>
-<header><h1><a class="home" href="/" title="Home: Overview">COCKPIT</a></h1></header>
+<header><h1><a class="home" href="/" title="Home: Overview">COCKPIT</a></h1><a class="helplink" href="/help" target="_blank" title="How memory and skills work">Help</a></header>
 <main>{front(nodes, roots)}</main>
 <script>document.addEventListener('keydown',e=>{{if(e.target.closest('input,textarea,[contenteditable]'))return;
 if(e.key==='Escape'){{const m=document.getElementById('modal');if(m)m.innerHTML=''}}}});</script>
@@ -1513,6 +1516,8 @@ class H(BaseHTTPRequestHandler):
             code = q.get('code', [''])[0].upper()
             n = next((n for n in nodes if (code and n.code == code) or (not code and n.rel == q.get('p', [''])[0])), None)
             body = view(n) if n else '<p>not found</p>'
+        elif u.path == '/help':  # static page beside this script, 2026-10-20
+            body = read(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'help.html'))
         elif u.path == '/':
             body = page()
         else:

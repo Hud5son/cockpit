@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cockpit Help</title>
+<!-- How the system works, for a person. Master here for now; may move to the Notion Wiki later. Written 2026-10-20. -->
+<style>
+:root{--bg:#f6f5f2;--surface:#fff;--ink:#1d1d1b;--muted:#77756f;--line:#e2dfd8;--accent:#2f5d8a;--warn:#b7791f}
+@media (prefers-color-scheme:dark){:root{--bg:#1b1b1a;--surface:#242422;--ink:#ecebe7;--muted:#a19f98;--line:#3a3935;--accent:#7fa8d1;--warn:#d9a24a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{padding:14px 24px;border-bottom:1px solid var(--line);background:var(--surface);display:flex;gap:18px;align-items:baseline}
+header h1{margin:0;font-size:15px;letter-spacing:.12em}
+header a{color:var(--accent);text-decoration:none;font-size:14px}
+main{max-width:820px;margin:0 auto;padding:24px 16px 60px}
+nav.toc{font-size:14px;margin-bottom:8px}nav.toc a{color:var(--accent);margin-right:14px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 24px 18px;margin:18px 0}
+h2{font-size:20px;margin:16px 0 4px}h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:20px 0 6px}
+p{margin:6px 0}ul{margin:6px 0;padding-left:20px}li{margin:3px 0}
+code{font:13px ui-monospace,Consolas,monospace;background:color-mix(in srgb,var(--ink) 7%,transparent);padding:1px 5px;border-radius:4px}
+pre{font:13px ui-monospace,Consolas,monospace;background:color-mix(in srgb,var(--ink) 7%,transparent);padding:10px 12px;border-radius:6px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600}
+.lead{font-size:16px}
+.note{border-left:3px solid var(--warn);padding:4px 12px;margin:10px 0;color:var(--ink)}
+.tag{font-size:11px;font-weight:600;letter-spacing:.04em;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--muted);vertical-align:2px}
+</style></head><body>
+<header><h1>COCKPIT HELP</h1><a href="/">← Back to the cockpit</a></header>
+<main>
+<nav class="toc"><a href="#machines">Machines</a><a href="#memory">Memory</a><a href="#skills">Skills</a></nav>
+
+<section id="machines">
+<h2>Two machines, two syncs</h2>
+<p class="lead">The PC (Alex-Office) is the reference machine. The laptop (Alex-Laptop) gets a copy of it, never the other way round.</p>
+<table>
+<tr><th>What</th><th>How it moves</th><th>Catch</th></tr>
+<tr><td>The vault</td><td>Obsidian Sync, both ways</td><td>Only while Obsidian is open on the machine. Skips dot-folders such as <code>.claude/</code></td></tr>
+<tr><td><code>~/.claude</code> (global skills, global <code>CLAUDE.md</code>)</td><td>SyncTrayzor, PC to laptop only</td><td>Only when both machines are on at once. Laptop edits never reach the PC</td></tr>
+<tr><td><code>~/dev</code> repos</td><td>GitHub, when pushed</td><td>Unpushed work stays on the machine it was done on</td></tr>
+</table>
+<div class="note">Before working on the laptop: have the PC on with Obsidian open for a few minutes, so both syncs catch up. The full catch-up is a prompt: <code>Tools/Laptop catch-up - Prompt.md</code>.</div>
+</section>
+
+<section id="memory">
+<h2>Memory</h2>
+<p class="lead">Claude's notes to itself between sessions. Treated as an <b>inbox</b>: things are caught here, then moved to their proper home.</p>
+
+<h3>Where it lives</h3>
+<ul>
+<li><code>Vault/Tools/memory/</code>, one fact per file, plus <code>MEMORY.md</code>, the one-line index every session loads.</li>
+<li>Obsidian Sync carries it to the laptop like any other vault file.</li>
+<li>Claude Code finds it through the <code>autoMemoryDirectory</code> setting in the vault's <code>.claude/settings.local.json</code>. That file never syncs, so each machine is set once.</li>
+</ul>
+
+<h3>How we treat it</h3>
+<ul>
+<li>Memory is a buffer, not a home. Anything with a proper home moves there: how Alex works to the global <code>CLAUDE.md</code>, vault rules to the vault <code>CLAUDE.md</code>, project facts to the node, traps to a Reference file.</li>
+<li>What stays in memory is only what has no other home.</li>
+<li>It stays switched on, because it is built into Claude Code and improves with it.</li>
+<li><span class="tag">PROPOSED</span> Session-close lists the memories written that session and offers a home for each. VOS row 31.</li>
+</ul>
+
+<h3>Don't</h3>
+<ul>
+<li>Don't keep project state in memory. It goes stale and the node already holds it.</li>
+<li>Don't edit memory files through Obsidian's Properties panel. It rewrites the front matter.</li>
+</ul>
+
+<h3>Setting up a machine</h3>
+<pre>python Tools/memory-setup.py</pre>
+<p>Run it from the vault. It sets the path and copies in any memories the machine held in the old place, never overwriting. Then start a fresh Claude session and ask it to "check the memory path": it should say <code>Tools\memory</code>.</p>
+</section>
+
+<section id="skills">
+<h2>Skills</h2>
+<p class="lead">Instructions Claude follows when asked, such as <code>/session-open</code>. A skill has no state. Work that runs on a cadence and leaves something behind is a workflow node, which may use a skill as its runbook.</p>
+
+<h3>Three places</h3>
+<table>
+<tr><th>Kind</th><th>Lives in</th><th>Reaches the laptop by</th><th>Examples</th></tr>
+<tr><td>Vault skills</td><td><code>Vault/Tools/skills/</code></td><td>Obsidian Sync</td><td>session-open, session-close, meeting-notes, task-review</td></tr>
+<tr><td>Global skills</td><td><code>~/.claude/skills/</code></td><td>SyncTrayzor, PC to laptop</td><td>tdd, research, branded-deliverable, markdown-html-pdf</td></tr>
+<tr><td>Plugin skills</td><td>Managed by the Claude app</td><td>The app itself</td><td>superpowers, anthropic-skills</td></tr>
+</table>
+
+<h3>Which goes where</h3>
+<ul>
+<li><b>Vault</b> when it is about the vault or is a workflow's runbook, so it travels with the vault.</li>
+<li><b>Global</b> when it is general or used in <code>~/dev</code> repos outside the vault.</li>
+</ul>
+
+<h3>How Claude finds vault skills</h3>
+<p>Claude Code looks in the vault's <code>.claude/skills/</code>. That folder is a junction, a signpost pointing at <code>Tools/skills/</code>, so the files live where Obsidian Sync can carry them. Each machine needs its own junction, made once.</p>
+<pre>cmd /c mklink /J "C:\Users\Alex\Documents\Vault\.claude\skills" "C:\Users\Alex\Documents\Vault\Tools\skills"</pre>
+
+<h3>Editing</h3>
+<ul>
+<li>Vault skills: edit in <code>Tools/skills/</code>, on either machine.</li>
+<li>Global skills: edit on the PC only. A laptop edit never reaches the PC.</li>
+<li>Check it worked: the skill appears in the <code>/</code> dropdown of a fresh session.</li>
+</ul>
+</section>
+</main></body></html>

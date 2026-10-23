@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-15
+updated: 2026-10-23
 ---
 
 **Blocked on:** nothing.
@@ -72,5 +72,13 @@ updated: 2026-10-15
 19. Code review of the action routes
     - Proposed 2026-10-12, Alex: leave for now. Notion Apply, the GET routes that open Explorer or VS Code (any page in the browser can call them), no login with HOST=0.0.0.0; due before row 16 (Tailscale)
     - full design review as the first step of row 7, the real build
+20. Help page
+    - built 2026-10-20: `prototype/help.html` at `/help`, a Help link beside COCKPIT; machines and syncs, memory, skills
+    - Alex 2026-10-20: may sync with the Notion Wiki later; not now. Add a section when Alex forgets how something works
+21. Sessions box on the node page
+    - Alex 2026-10-23: start a node session from its page, and see open chats about the node
+    - start: no documented link opens a desktop Code session; button copies `/session-open ABC` and brings the app forward (`claude://`), Alex pastes. Terminal can do it in one click (`claude-cli://open`)
+    - chats: unarchived sessions read from `%APPDATA%\Claude\claude-code-sessions\*\*\local_*.json` (title, isArchived, lastActivityAt), matched on the "ABC session" title convention. Unofficial format, read-only, may break on app update
+    - built and checked 2026-10-23 (KBS 7, CKP 3, HOM 1, FUN none), rolled back the same day at Alex's call; parked here
 
 **Notes for next time:** decisions live in `prototype/FINDINGS.md`, tasks here. Vault-side items (session-close tidy step, refresh misreading Areas with STATE) sit in VOS STATE.

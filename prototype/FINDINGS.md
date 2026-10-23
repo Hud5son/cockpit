@@ -2,6 +2,10 @@
 
 What the front-page prototype has settled, and what it hasn't. Tagged Decided (Alex said so), Proposed (Claude's, awaiting a yes) or Unverified.
 
+### Decided, 2026-10-23
+
+- **Does it move the needle?** A principle, not a gate: before adding anything to a page, ask whether it changes what Alex does, not just what he can see. Prompted by the Sessions box, built and rolled back the same day (STATE backlog row 21). Alex: "the sentiment is right", a hard gate was "too aggressive".
+
 ### Decided, 2026-10-03
 
 - **Claude skills from the page run headless Claude Code** (`claude -p`, subscription, not the API). Claude proposes, Alex ticks, plain Python writes, so "nothing before the yes" is enforced by the page, not trusted to the model. Task review's Suggest actions is the first; the hover names the account. Every suggested row is validated against the pull, invented ids are dropped. Pattern for the "Check this node" row.
